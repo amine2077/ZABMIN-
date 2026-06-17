@@ -2,62 +2,50 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'core/services/websocket_service.dart';
 import 'core/services/alerts_service.dart';
+import 'core/theme/zcolors.dart';
 import 'screens/dashboard_screen.dart';
-
-Process? _agentProcess;
 
 Future<void> _startAgent() async {
   try {
     final appDir = Directory(Platform.script.resolve('.').toFilePath());
 
     String? searchPath = appDir.path;
-    String? agentPath;
+    String? agentDir;
 
     while (true) {
       final parent = Directory(searchPath!).parent.path;
       if (parent == searchPath) break;
       final segments = Uri.directory(searchPath).pathSegments;
-      final dirName = segments.lastWhere((s) => s.isNotEmpty, orElse: () => '');
+      final dirName =
+          segments.lastWhere((s) => s.isNotEmpty, orElse: () => '');
       if (dirName == 'app') {
-        final candidate = File('$parent/agent/agent.py');
+        final candidate = Directory('$parent/agent');
         if (await candidate.exists()) {
-          agentPath = candidate.path;
+          agentDir = candidate.path;
         }
         break;
       }
       searchPath = parent;
     }
 
-    agentPath ??= Platform.script.resolve('../agent/agent.py').toFilePath();
+    agentDir ??= Platform.script.resolve('../agent').toFilePath();
 
-    final agentFile = File(agentPath);
-    if (await agentFile.exists()) {
-      final venvPython = File('${agentFile.parent.path}/venv/Scripts/python.exe');
-      String pythonCmd;
-      List<String> args;
-
-      if (await venvPython.exists()) {
-        pythonCmd = venvPython.path;
-        args = [agentFile.path];
-      } else {
-        pythonCmd = 'py';
-        args = [agentFile.path];
-      }
-
-      _agentProcess = await Process.start(
-        pythonCmd,
-        args,
-        workingDirectory: agentFile.parent.path,
+    final vbs = File('$agentDir/run_agent.vbs');
+    if (await vbs.exists()) {
+      await Process.start(
+        'wscript',
+        [vbs.path],
         mode: ProcessStartMode.detached,
       );
-      stdout.writeln('[Zabmin] Agent started: $pythonCmd');
+      stdout.writeln('[Zabmin] Agent started (hidden)');
     } else {
-      stderr.writeln('[Zabmin] Agent not found at $agentPath');
+      stderr.writeln('[Zabmin] run_agent.vbs not found at ${vbs.path}');
     }
   } catch (e) {
     stderr.writeln('[Zabmin] Failed to start agent: $e');
@@ -124,6 +112,8 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> with WindowListener {
+  bool _isMaximized = false;
+
   @override
   void initState() {
     super.initState();
@@ -145,18 +135,170 @@ class _AppShellState extends State<AppShell> with WindowListener {
   @override
   void dispose() {
     windowManager.removeListener(this);
-    _agentProcess?.kill();
     super.dispose();
   }
 
   @override
-  void onWindowClose() {
-    _agentProcess?.kill();
+  void onWindowClose() async {
+    try {
+      await Process.run('taskkill', ['/F', '/IM', 'python.exe']);
+    } catch (_) {}
     windowManager.destroy();
   }
 
   @override
+  void onWindowMaximize() {
+    setState(() => _isMaximized = true);
+  }
+
+  @override
+  void onWindowUnmaximize() {
+    setState(() => _isMaximized = false);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const DashboardScreen();
+    return Scaffold(
+      backgroundColor: ZColors.background,
+      body: Column(
+        children: [
+          _buildTitleBar(),
+          Expanded(
+            child: Consumer<WebSocketService>(
+              builder: (context, ws, _) {
+                final status = ws.connectionStatus;
+                final hasData = ws.latest != null;
+
+                if (status != 'connected' || !hasData) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('Zabmin',
+                            style: GoogleFonts.inter(
+                              fontSize: 32,
+                              fontWeight: FontWeight.w800,
+                              color: ZColors.textPrimary,
+                            )),
+                        const SizedBox(height: 24),
+                        const CircularProgressIndicator(
+                          color: ZColors.accent,
+                          strokeWidth: 2,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          status == 'connecting'
+                              ? 'Connecting to agent...'
+                              : 'Agent disconnected. Retrying in 3s...',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            color: ZColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return const DashboardScreen();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTitleBar() {
+    return GestureDetector(
+      onPanStart: (_) => windowManager.startDragging(),
+      onDoubleTap: () async {
+        if (_isMaximized) {
+          await windowManager.unmaximize();
+        } else {
+          await windowManager.maximize();
+        }
+      },
+      child: Container(
+        height: 36,
+        color: ZColors.background,
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
+            Text('Zabmin',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: ZColors.textSecondary,
+                )),
+            const Spacer(),
+            _WindowButton(
+              icon: Icons.remove,
+              onPressed: () => windowManager.minimize(),
+            ),
+            _WindowButton(
+              icon: _isMaximized
+                  ? Icons.filter_none_rounded
+                  : Icons.crop_square_rounded,
+              onPressed: () async {
+                if (_isMaximized) {
+                  await windowManager.unmaximize();
+                } else {
+                  await windowManager.maximize();
+                }
+              },
+            ),
+            _WindowButton(
+              icon: Icons.close,
+              isClose: true,
+              onPressed: () => windowManager.close(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WindowButton extends StatefulWidget {
+  final IconData icon;
+  final VoidCallback onPressed;
+  final bool isClose;
+
+  const _WindowButton({
+    required this.icon,
+    required this.onPressed,
+    this.isClose = false,
+  });
+
+  @override
+  State<_WindowButton> createState() => _WindowButtonState();
+}
+
+class _WindowButtonState extends State<_WindowButton> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bgColor = _hovering
+        ? (widget.isClose ? ZColors.red : ZColors.surface)
+        : Colors.transparent;
+    final iconColor = _hovering && widget.isClose
+        ? Colors.white
+        : ZColors.textSecondary;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        child: Container(
+          width: 46,
+          height: 36,
+          color: bgColor,
+          child: Icon(widget.icon, size: 18, color: iconColor),
+        ),
+      ),
+    );
   }
 }

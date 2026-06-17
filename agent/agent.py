@@ -7,11 +7,15 @@ import psutil
 import websockets
 
 import cpu_state
+import database
 from collectors.disk import collect as collect_disk
 from collectors.network import collect as collect_network
 from collectors.processes import collect as collect_processes
+from collectors.gpu import collect as collect_gpu
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 connected_clients = set()
@@ -56,6 +60,7 @@ def gather_metrics():
         "disk": collect_disk(),
         "network": collect_network(),
         "processes": collect_processes(),
+        "gpu": collect_gpu(),
     }
 
 
@@ -63,8 +68,68 @@ async def handler(websocket):
     connected_clients.add(websocket)
     logger.info(f"Client connected. Total: {len(connected_clients)}")
     try:
-        async for _ in websocket:
-            pass
+        async for raw_message in websocket:
+            try:
+                msg = json.loads(raw_message)
+                msg_type = msg.get("type")
+
+                if msg_type == "kill_process":
+                    pid = msg.get("pid")
+                    try:
+                        psutil.Process(pid).kill()
+                        await websocket.send(json.dumps({
+                            "type": "kill_result",
+                            "pid": pid,
+                            "success": True,
+                        }))
+                    except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                        await websocket.send(json.dumps({
+                            "type": "kill_result",
+                            "pid": pid,
+                            "success": False,
+                            "error": str(e),
+                        }))
+
+                elif msg_type == "get_process_connections":
+                    pid = msg.get("pid")
+                    try:
+                        conns = psutil.Process(pid).net_connections()
+                        conn_list = []
+                        for c in conns:
+                            local = f"{c.laddr.ip}:{c.laddr.port}" if c.laddr else "—"
+                            remote = f"{c.raddr.ip}:{c.raddr.port}" if c.raddr else "—"
+                            proto = "UDP" if c.type == 2 else "TCP"
+                            conn_list.append({
+                                "local_addr": local,
+                                "remote_addr": remote,
+                                "status": c.status or "UNKNOWN",
+                                "protocol": proto,
+                            })
+                        await websocket.send(json.dumps({
+                            "type": "process_connections",
+                            "pid": pid,
+                            "connections": conn_list,
+                        }))
+                    except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                        await websocket.send(json.dumps({
+                            "type": "process_connections",
+                            "pid": pid,
+                            "connections": [],
+                            "error": str(e),
+                        }))
+
+                elif msg_type == "get_history":
+                    minutes = msg.get("duration_minutes", 60)
+                    rows = database.get_history(minutes)
+                    await websocket.send(json.dumps({
+                        "type": "history",
+                        "data": rows,
+                    }))
+
+            except json.JSONDecodeError:
+                pass
+            except Exception as e:
+                logger.error(f"Error handling message: {e}")
     except websockets.ConnectionClosed:
         pass
     except Exception:
@@ -75,6 +140,7 @@ async def handler(websocket):
 
 
 async def broadcast_loop():
+    db_counter = 0
     while True:
         try:
             metrics = gather_metrics()
@@ -84,6 +150,10 @@ async def broadcast_loop():
                     *[client.send(payload) for client in connected_clients],
                     return_exceptions=True,
                 )
+            db_counter += 1
+            if db_counter >= 5:
+                database.insert_metrics(metrics)
+                db_counter = 0
         except Exception as e:
             logger.error(f"Error collecting metrics: {e}")
         await asyncio.sleep(1)

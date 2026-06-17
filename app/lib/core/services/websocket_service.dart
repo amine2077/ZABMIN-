@@ -16,6 +16,10 @@ class WebSocketService extends ChangeNotifier {
   String _connectionStatus = 'disconnected';
   final ValueNotifier<SystemMetrics?> metricsNotifier = ValueNotifier(null);
 
+  Completer<List<Map<String, dynamic>>>? _historyCompleter;
+  Completer<List<Map<String, dynamic>>>? _connectionsCompleter;
+  Completer<Map<String, dynamic>>? _killResultCompleter;
+
   SystemMetrics? get latest => _latest;
   List<SystemMetrics> get history => List.unmodifiable(_history);
   String get connectionStatus => _connectionStatus;
@@ -39,6 +43,40 @@ class WebSocketService extends ChangeNotifier {
           _connectionStatus = 'connected';
           try {
             final parsed = jsonDecode(data as String) as Map<String, dynamic>;
+
+            final msgType = parsed['type'] as String?;
+
+            if (msgType == 'history') {
+              final rows = (parsed['data'] as List<dynamic>?)
+                      ?.map((r) => Map<String, dynamic>.from(r as Map))
+                      .toList() ??
+                  [];
+              if (_historyCompleter != null && !_historyCompleter!.isCompleted) {
+                _historyCompleter!.complete(rows);
+              }
+              return;
+            }
+
+            if (msgType == 'process_connections') {
+              final conns = (parsed['connections'] as List<dynamic>?)
+                      ?.map((c) => Map<String, dynamic>.from(c as Map))
+                      .toList() ??
+                  [];
+              if (_connectionsCompleter != null &&
+                  !_connectionsCompleter!.isCompleted) {
+                _connectionsCompleter!.complete(conns);
+              }
+              return;
+            }
+
+            if (msgType == 'kill_result') {
+              if (_killResultCompleter != null &&
+                  !_killResultCompleter!.isCompleted) {
+                _killResultCompleter!.complete(parsed);
+              }
+              return;
+            }
+
             final metrics = SystemMetrics.fromJson(parsed);
             _latest = metrics;
             _history.add(metrics);
@@ -62,6 +100,41 @@ class WebSocketService extends ChangeNotifier {
     } catch (e) {
       _handleDisconnect();
     }
+  }
+
+  void sendMessage(String json) {
+    _channel?.sink.add(json);
+  }
+
+  void killProcess(int pid) {
+    sendMessage(jsonEncode({'type': 'kill_process', 'pid': pid}));
+  }
+
+  Future<Map<String, dynamic>> waitForKillResult() {
+    _killResultCompleter = Completer<Map<String, dynamic>>();
+    return _killResultCompleter!.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => {'success': false, 'error': 'Timeout'},
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> fetchConnections(int pid) {
+    _connectionsCompleter = Completer<List<Map<String, dynamic>>>();
+    sendMessage(jsonEncode({'type': 'get_process_connections', 'pid': pid}));
+    return _connectionsCompleter!.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => [],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> fetchHistory(int minutes) {
+    _historyCompleter = Completer<List<Map<String, dynamic>>>();
+    sendMessage(
+        jsonEncode({'type': 'get_history', 'duration_minutes': minutes}));
+    return _historyCompleter!.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => [],
+    );
   }
 
   void _handleDisconnect() {

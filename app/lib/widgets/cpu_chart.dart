@@ -1,119 +1,161 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 
 import '../core/models/system_metrics.dart';
+import '../core/services/websocket_service.dart';
+import '../core/theme/zcolors.dart';
+import 'time_range_selector.dart';
 
-class CPUChart extends StatelessWidget {
+class CPUChart extends StatefulWidget {
   final List<SystemMetrics> history;
 
   const CPUChart({super.key, required this.history});
 
   @override
+  State<CPUChart> createState() => _CPUChartState();
+}
+
+class _CPUChartState extends State<CPUChart> {
+  int _rangeMinutes = 1;
+  List<Map<String, dynamic>>? _historicData;
+  bool _loading = false;
+
+  void _onRangeChanged(int minutes) async {
+    setState(() {
+      _rangeMinutes = minutes;
+      if (minutes == 1) {
+        _historicData = null;
+        _loading = false;
+      } else {
+        _loading = true;
+      }
+    });
+    if (minutes > 1) {
+      final ws = context.read<WebSocketService>();
+      final data = await ws.fetchHistory(minutes);
+      if (mounted) {
+        setState(() {
+          _historicData = data;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (history.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: const Color(0xFF161B22),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF30363D)),
-        ),
-        child: Center(
-          child: Text(
-            'Waiting for data...',
-            style: GoogleFonts.inter(color: const Color(0xFF8B949E)),
-          ),
-        ),
-      );
+    final spots = <FlSpot>[];
+
+    if (_rangeMinutes == 1) {
+      for (int i = 0; i < widget.history.length; i++) {
+        spots.add(FlSpot(i.toDouble(), widget.history[i].cpu.percentTotal));
+      }
+    } else if (_historicData != null) {
+      for (int i = 0; i < _historicData!.length; i++) {
+        spots.add(FlSpot(
+            i.toDouble(),
+            (_historicData![i]['cpu_percent'] as num?)?.toDouble() ?? 0.0));
+      }
     }
 
-    final spots = <FlSpot>[];
-    for (int i = 0; i < history.length; i++) {
-      spots.add(FlSpot(i.toDouble(), history[i].cpu.percentTotal));
-    }
+    final rangeLabel = _rangeMinutes == 1
+        ? 'last 60s'
+        : _rangeMinutes == 15
+            ? 'last 15m'
+            : 'last 1h';
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF161B22),
+        color: ZColors.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF30363D)),
+        border: Border.all(color: ZColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'CPU Usage (last 60s)',
-            style: GoogleFonts.inter(
-              fontSize: 15,
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-            ),
+          Row(
+            children: [
+              Text(
+                'CPU Usage ($rangeLabel)',
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  color: ZColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              TimeRangeSelector(
+                selectedMinutes: _rangeMinutes,
+                onChanged: _onRangeChanged,
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           SizedBox(
             height: 200,
-            child: LineChart(
-              LineChartData(
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  horizontalInterval: 25,
-                  getDrawingHorizontalLine: (value) {
-                    return FlLine(
-                      color: const Color(0xFF30363D),
-                      strokeWidth: 1,
-                    );
-                  },
-                ),
-                titlesData: FlTitlesData(
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 36,
-                      interval: 25,
-                      getTitlesWidget: (value, meta) {
-                        return Text(
-                          '${value.toInt()}%',
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            color: const Color(0xFF8B949E),
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: ZColors.accent))
+                : spots.isEmpty
+                    ? Center(
+                        child: Text('Waiting for data...',
+                            style: GoogleFonts.inter(
+                                color: ZColors.textSecondary)))
+                    : LineChart(
+                        LineChartData(
+                          gridData: FlGridData(
+                            show: true,
+                            drawVerticalLine: false,
+                            horizontalInterval: 25,
+                            getDrawingHorizontalLine: (value) {
+                              return FlLine(
+                                  color: ZColors.border, strokeWidth: 1);
+                            },
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  rightTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  topTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: spots,
-                    isCurved: true,
-                    curveSmoothness: 0.3,
-                    color: const Color(0xFF58A6FF),
-                    barWidth: 2.5,
-                    dotData: FlDotData(show: false),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      color: const Color(0xFF58A6FF).withOpacity(0.1),
-                    ),
-                  ),
-                ],
-                minY: 0,
-                maxY: 100,
-                lineTouchData: LineTouchData(enabled: false),
-              ),
-            ),
+                          titlesData: FlTitlesData(
+                            leftTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                reservedSize: 36,
+                                interval: 25,
+                                getTitlesWidget: (value, meta) {
+                                  return Text('${value.toInt()}%',
+                                      style: GoogleFonts.inter(
+                                          fontSize: 11,
+                                          color: ZColors.textSecondary));
+                                },
+                              ),
+                            ),
+                            bottomTitles: const AxisTitles(
+                                sideTitles: SideTitles(showTitles: false)),
+                            rightTitles: const AxisTitles(
+                                sideTitles: SideTitles(showTitles: false)),
+                            topTitles: const AxisTitles(
+                                sideTitles: SideTitles(showTitles: false)),
+                          ),
+                          borderData: FlBorderData(show: false),
+                          lineBarsData: [
+                            LineChartBarData(
+                              spots: spots,
+                              isCurved: true,
+                              curveSmoothness: 0.3,
+                              color: ZColors.accent,
+                              barWidth: 2.5,
+                              dotData: FlDotData(show: false),
+                              belowBarData: BarAreaData(
+                                show: true,
+                                color: ZColors.accent.withValues(alpha: 0.1),
+                              ),
+                            ),
+                          ],
+                          minY: 0,
+                          maxY: 100,
+                          lineTouchData: LineTouchData(enabled: false),
+                        ),
+                      ),
           ),
         ],
       ),

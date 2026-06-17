@@ -10,6 +10,8 @@ import '../widgets/process_table.dart';
 import 'processes_screen.dart';
 import 'network_screen.dart';
 import 'disk_screen.dart';
+import 'ram_screen.dart';
+import 'gpu_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -34,7 +36,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildSidebar() {
-    final navItems = ['Dashboard', 'Processes', 'Network', 'Disk'];
+    final navItems = ['Dashboard', 'Processes', 'Network', 'Disk', 'RAM', 'GPU'];
 
     return Container(
       width: 220,
@@ -84,7 +86,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ),
                 selected: isSelected,
-                selectedTileColor: const Color(0xFF58A6FF).withOpacity(0.08),
+                selectedTileColor: const Color(0xFF58A6FF).withValues(alpha: 0.08),
                 onTap: () {
                   setState(() => _selectedNav = item);
                 },
@@ -106,6 +108,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return Icons.network_check_outlined;
       case 'Disk':
         return Icons.storage_outlined;
+      case 'RAM':
+        return Icons.view_list_outlined;
+      case 'GPU':
+        return Icons.videogame_asset_outlined;
       default:
         return Icons.circle_outlined;
     }
@@ -119,6 +125,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return const NetworkScreen();
       case 'Disk':
         return const DiskScreen();
+      case 'RAM':
+        return const RamScreen();
+      case 'GPU':
+        return const GpuScreen();
       default:
         return _buildDashboard();
     }
@@ -152,6 +162,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           );
         }
+
+        final gpus = metrics.gpu;
+        final gpuUtil = gpus.isNotEmpty ? gpus.first.utilizationPercent : 0.0;
+        final gpuVramPercent = gpus.isNotEmpty ? gpus.first.vramPercent : 0.0;
 
         return SingleChildScrollView(
           padding: const EdgeInsets.all(20),
@@ -190,6 +204,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ],
               ),
+              if (gpus.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    MetricCard(
+                      label: 'GPU',
+                      value: gpuUtil.toStringAsFixed(1),
+                      unit: '%',
+                      percent: gpuUtil,
+                    ),
+                    const SizedBox(width: 16),
+                    MetricCard(
+                      label: 'VRAM',
+                      value: gpus.first.vramUsedMb.toStringAsFixed(0),
+                      unit: '/ ${gpus.first.vramTotalMb.toStringAsFixed(0)} MB',
+                      percent: gpuVramPercent,
+                    ),
+                    const SizedBox(width: 16),
+                    MetricCard(
+                      label: 'GPU Temp',
+                      value: gpus.first.temperatureC > 0
+                          ? gpus.first.temperatureC.toStringAsFixed(0)
+                          : '—',
+                      unit: gpus.first.temperatureC > 0 ? '°C' : '',
+                      percent: gpus.first.temperatureC > 0
+                          ? (gpus.first.temperatureC / 100 * 100).clamp(0, 100)
+                          : 0,
+                    ),
+                    const SizedBox(width: 16),
+                    const SizedBox(width: 16, child: SizedBox.shrink()),
+                  ],
+                ),
+              ],
               const SizedBox(height: 20),
               CPUChart(history: wsService.history),
               const SizedBox(height: 20),

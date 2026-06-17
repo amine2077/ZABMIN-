@@ -15,7 +15,7 @@ def collect():
     try:
         procs = []
         for p in psutil.process_iter(
-            ["pid", "name", "cpu_percent", "memory_info", "status", "net_connections"]
+            ["pid", "name", "cpu_percent", "memory_info", "status"]
         ):
             try:
                 info = p.info
@@ -24,7 +24,6 @@ def collect():
 
                 raw_cpu = info["cpu_percent"] or 0.0
 
-                # System Idle Process reports inverse of actual usage
                 if info["name"].lower() == "system idle process":
                     cpu_percent = round((100.0 - raw_cpu) / _logical_cpu_count, 1)
                 else:
@@ -37,21 +36,13 @@ def collect():
                 if info["memory_info"]:
                     mem_mb = round(info["memory_info"].rss / (1024**2), 1)
 
-                connections = 0
-                try:
-                    conns = info["net_connections"]
-                    if conns is not None:
-                        connections = len(conns)
-                except Exception:
-                    connections = 0
-
                 procs.append({
                     "pid": info["pid"] or 0,
                     "name": info["name"],
                     "cpu_percent": cpu_percent,
                     "memory_mb": mem_mb,
                     "status": info["status"] or "unknown",
-                    "connections": connections,
+                    "connections": 0,
                 })
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue

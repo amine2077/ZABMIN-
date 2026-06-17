@@ -1,33 +1,83 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 
 import '../core/models/system_metrics.dart';
+import '../core/services/websocket_service.dart';
+import '../core/theme/zcolors.dart';
+import 'time_range_selector.dart';
 
-class NetworkChart extends StatelessWidget {
+class NetworkChart extends StatefulWidget {
   final List<SystemMetrics> history;
 
   const NetworkChart({super.key, required this.history});
 
   @override
-  Widget build(BuildContext context) {
-    if (history.isEmpty) {
-      return _placeholder('Waiting for data...');
-    }
+  State<NetworkChart> createState() => _NetworkChartState();
+}
 
+class _NetworkChartState extends State<NetworkChart> {
+  int _rangeMinutes = 1;
+  List<Map<String, dynamic>>? _historicData;
+  bool _loading = false;
+
+  void _onRangeChanged(int minutes) async {
+    setState(() {
+      _rangeMinutes = minutes;
+      if (minutes == 1) {
+        _historicData = null;
+        _loading = false;
+      } else {
+        _loading = true;
+      }
+    });
+    if (minutes > 1) {
+      final ws = context.read<WebSocketService>();
+      final data = await ws.fetchHistory(minutes);
+      if (mounted) {
+        setState(() {
+          _historicData = data;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final recvSpots = <FlSpot>[];
     final sentSpots = <FlSpot>[];
     double maxVal = 1;
-    for (int i = 0; i < history.length; i++) {
-      final recv = history[i].network.recvMbS;
-      final sent = history[i].network.sentMbS;
-      recvSpots.add(FlSpot(i.toDouble(), recv));
-      sentSpots.add(FlSpot(i.toDouble(), sent));
-      if (recv > maxVal) maxVal = recv;
-      if (sent > maxVal) maxVal = sent;
+
+    if (_rangeMinutes == 1) {
+      for (int i = 0; i < widget.history.length; i++) {
+        final recv = widget.history[i].network.recvMbS;
+        final sent = widget.history[i].network.sentMbS;
+        recvSpots.add(FlSpot(i.toDouble(), recv));
+        sentSpots.add(FlSpot(i.toDouble(), sent));
+        if (recv > maxVal) maxVal = recv;
+        if (sent > maxVal) maxVal = sent;
+      }
+    } else if (_historicData != null) {
+      for (int i = 0; i < _historicData!.length; i++) {
+        final recv =
+            (_historicData![i]['net_recv_mb_s'] as num?)?.toDouble() ?? 0.0;
+        final sent =
+            (_historicData![i]['net_sent_mb_s'] as num?)?.toDouble() ?? 0.0;
+        recvSpots.add(FlSpot(i.toDouble(), recv));
+        sentSpots.add(FlSpot(i.toDouble(), sent));
+        if (recv > maxVal) maxVal = recv;
+        if (sent > maxVal) maxVal = sent;
+      }
     }
 
     final maxY = (maxVal * 1.2).ceilToDouble();
+    final rangeLabel = _rangeMinutes == 1
+        ? 'last 60s'
+        : _rangeMinutes == 15
+            ? 'last 15m'
+            : 'last 1h';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -35,31 +85,43 @@ class NetworkChart extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Network (last 60s)', style: GoogleFonts.inter(fontSize: 15, color: Colors.white, fontWeight: FontWeight.w600)),
+          Row(
+            children: [
+              Text('Network ($rangeLabel)',
+                  style: GoogleFonts.inter(
+                      fontSize: 15,
+                      color: ZColors.textPrimary,
+                      fontWeight: FontWeight.w600)),
+              const Spacer(),
+              TimeRangeSelector(
+                selectedMinutes: _rangeMinutes,
+                onChanged: _onRangeChanged,
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
           Row(
             children: [
-              _legend('Recv', const Color(0xFF58A6FF)),
+              _legend('Recv', ZColors.accent),
               const SizedBox(width: 16),
-              _legend('Sent', const Color(0xFF3FB950)),
+              _legend('Sent', ZColors.green),
             ],
           ),
           const SizedBox(height: 8),
           SizedBox(
             height: 200,
-            child: LineChart(_chartData(recvSpots, sentSpots, maxY)),
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: ZColors.accent))
+                : recvSpots.isEmpty
+                    ? Center(
+                        child: Text('Waiting for data...',
+                            style: GoogleFonts.inter(
+                                color: ZColors.textSecondary)))
+                    : LineChart(
+                        _chartData(recvSpots, sentSpots, maxY)),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _placeholder(String text) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: _boxDecoration(),
-      child: Center(
-        child: Text(text, style: GoogleFonts.inter(color: const Color(0xFF8B949E))),
       ),
     );
   }
@@ -69,16 +131,17 @@ class NetworkChart extends StatelessWidget {
       children: [
         Container(width: 12, height: 3, color: color),
         const SizedBox(width: 4),
-        Text(label, style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF8B949E))),
+        Text(label,
+            style: GoogleFonts.inter(fontSize: 11, color: ZColors.textSecondary)),
       ],
     );
   }
 
   BoxDecoration _boxDecoration() {
     return BoxDecoration(
-      color: const Color(0xFF161B22),
+      color: ZColors.surface,
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: const Color(0xFF30363D)),
+      border: Border.all(color: ZColors.border),
     );
   }
 
@@ -88,7 +151,8 @@ class NetworkChart extends StatelessWidget {
         show: true,
         drawVerticalLine: false,
         horizontalInterval: maxY > 10 ? 10 : (maxY / 4),
-        getDrawingHorizontalLine: (value) => FlLine(color: const Color(0xFF30363D), strokeWidth: 1),
+        getDrawingHorizontalLine: (value) =>
+            FlLine(color: ZColors.border, strokeWidth: 1),
       ),
       titlesData: FlTitlesData(
         leftTitles: AxisTitles(
@@ -96,15 +160,17 @@ class NetworkChart extends StatelessWidget {
             showTitles: true,
             reservedSize: 44,
             interval: maxY > 10 ? 10 : (maxY / 4),
-            getTitlesWidget: (value, meta) => Text(
-              '${value.toStringAsFixed(1)}',
-              style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFF8B949E)),
-            ),
+            getTitlesWidget: (value, meta) => Text(value.toStringAsFixed(1),
+                style: GoogleFonts.inter(
+                    fontSize: 10, color: ZColors.textSecondary)),
           ),
         ),
-        bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        bottomTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false)),
+        rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false)),
+        topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false)),
       ),
       borderData: FlBorderData(show: false),
       lineBarsData: [
@@ -112,19 +178,21 @@ class NetworkChart extends StatelessWidget {
           spots: recv,
           isCurved: true,
           curveSmoothness: 0.3,
-          color: const Color(0xFF58A6FF),
+          color: ZColors.accent,
           barWidth: 2.5,
           dotData: FlDotData(show: false),
-          belowBarData: BarAreaData(show: true, color: const Color(0xFF58A6FF).withOpacity(0.08)),
+          belowBarData: BarAreaData(
+              show: true, color: ZColors.accent.withValues(alpha: 0.08)),
         ),
         LineChartBarData(
           spots: sent,
           isCurved: true,
           curveSmoothness: 0.3,
-          color: const Color(0xFF3FB950),
+          color: ZColors.green,
           barWidth: 2,
           dotData: FlDotData(show: false),
-          belowBarData: BarAreaData(show: true, color: const Color(0xFF3FB950).withOpacity(0.08)),
+          belowBarData: BarAreaData(
+              show: true, color: ZColors.green.withValues(alpha: 0.08)),
         ),
       ],
       minY: 0,
