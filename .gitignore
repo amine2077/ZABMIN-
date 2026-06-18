@@ -10,6 +10,9 @@ ENV/
 dist/
 build/
 *.db
+*.db-shm
+*.db-wal
+agent.pid
 
 # Flutter/Dart
 .dart_tool/

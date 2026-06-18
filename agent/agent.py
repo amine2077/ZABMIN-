@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import time
 import logging
 import threading
@@ -8,6 +9,8 @@ import websockets
 
 import cpu_state
 import database
+from collectors.cpu import collect as collect_cpu
+from collectors.memory import collect as collect_memory
 from collectors.disk import collect as collect_disk
 from collectors.network import collect as collect_network
 from collectors.processes import collect as collect_processes
@@ -18,49 +21,61 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent.pid")
+
 connected_clients = set()
 
 
-def _collect_cpu_threaded():
-    state = cpu_state.read_state()
+def _write_pid_file():
     try:
-        freq = psutil.cpu_freq()
-        freq_mhz = round(freq.current) if freq else 0
-        return {
-            "percent_total": state["cpu_total"],
-            "percent_per_core": state["cpu_per_core"],
-            "freq_mhz": freq_mhz,
-            "core_count": psutil.cpu_count(logical=False) or 0,
-            "thread_count": psutil.cpu_count(logical=True) or 0,
-        }
-    except Exception:
-        return {
-            "percent_total": state["cpu_total"],
-            "percent_per_core": state["cpu_per_core"],
-            "freq_mhz": 0,
-            "core_count": 0,
-            "thread_count": 0,
-        }
+        with open(PID_FILE, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+        logger.info(f"Wrote PID {os.getpid()} to {PID_FILE}")
+    except Exception as e:
+        logger.warning(f"Failed to write PID file: {e}")
 
 
-def _collect_memory_threaded():
-    state = cpu_state.read_state()
-    return {
-        "total_gb": state["ram_total_gb"],
-        "used_gb": state["ram_used_gb"],
-        "percent": state["ram_percent"],
-    }
+def _run_with_com(fn):
+    """Wrap a collector so asyncio.to_thread workers have COM initialized (required for WMI on Windows)."""
+
+    def _inner():
+        try:
+            import pythoncom
+
+            pythoncom.CoInitializeEx(0)
+        except Exception:
+            pass
+        try:
+            return fn()
+        finally:
+            try:
+                import pythoncom
+
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+
+    return _inner
 
 
-def gather_metrics():
+async def gather_metrics():
+    """Collect all metrics in parallel threads to avoid blocking the event loop."""
+    cpu, mem, disk, net, procs, gpu = await asyncio.gather(
+        asyncio.to_thread(_run_with_com(collect_cpu)),
+        asyncio.to_thread(_run_with_com(collect_memory)),
+        asyncio.to_thread(_run_with_com(collect_disk)),
+        asyncio.to_thread(_run_with_com(collect_network)),
+        asyncio.to_thread(_run_with_com(collect_processes)),
+        asyncio.to_thread(_run_with_com(collect_gpu)),
+    )
     return {
         "timestamp": int(time.time()),
-        "cpu": _collect_cpu_threaded(),
-        "memory": _collect_memory_threaded(),
-        "disk": collect_disk(),
-        "network": collect_network(),
-        "processes": collect_processes(),
-        "gpu": collect_gpu(),
+        "cpu": cpu,
+        "memory": mem,
+        "disk": disk,
+        "network": net,
+        "processes": procs,
+        "gpu": gpu,
     }
 
 
@@ -75,23 +90,35 @@ async def handler(websocket):
 
                 if msg_type == "kill_process":
                     pid = msg.get("pid")
+                    request_id = msg.get("request_id")
                     try:
                         psutil.Process(pid).kill()
-                        await websocket.send(json.dumps({
-                            "type": "kill_result",
-                            "pid": pid,
-                            "success": True,
-                        }))
+                        await websocket.send(
+                            json.dumps(
+                                {
+                                    "type": "kill_result",
+                                    "pid": pid,
+                                    "request_id": request_id,
+                                    "success": True,
+                                }
+                            )
+                        )
                     except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                        await websocket.send(json.dumps({
-                            "type": "kill_result",
-                            "pid": pid,
-                            "success": False,
-                            "error": str(e),
-                        }))
+                        await websocket.send(
+                            json.dumps(
+                                {
+                                    "type": "kill_result",
+                                    "pid": pid,
+                                    "request_id": request_id,
+                                    "success": False,
+                                    "error": str(e),
+                                }
+                            )
+                        )
 
                 elif msg_type == "get_process_connections":
                     pid = msg.get("pid")
+                    request_id = msg.get("request_id")
                     try:
                         conns = psutil.Process(pid).net_connections()
                         conn_list = []
@@ -99,35 +126,53 @@ async def handler(websocket):
                             local = f"{c.laddr.ip}:{c.laddr.port}" if c.laddr else "—"
                             remote = f"{c.raddr.ip}:{c.raddr.port}" if c.raddr else "—"
                             proto = "UDP" if c.type == 2 else "TCP"
-                            conn_list.append({
-                                "local_addr": local,
-                                "remote_addr": remote,
-                                "status": c.status or "UNKNOWN",
-                                "protocol": proto,
-                            })
-                        await websocket.send(json.dumps({
-                            "type": "process_connections",
-                            "pid": pid,
-                            "connections": conn_list,
-                        }))
+                            conn_list.append(
+                                {
+                                    "local_addr": local,
+                                    "remote_addr": remote,
+                                    "status": c.status or "UNKNOWN",
+                                    "protocol": proto,
+                                }
+                            )
+                        await websocket.send(
+                            json.dumps(
+                                {
+                                    "type": "process_connections",
+                                    "pid": pid,
+                                    "request_id": request_id,
+                                    "connections": conn_list,
+                                }
+                            )
+                        )
                     except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                        await websocket.send(json.dumps({
-                            "type": "process_connections",
-                            "pid": pid,
-                            "connections": [],
-                            "error": str(e),
-                        }))
+                        await websocket.send(
+                            json.dumps(
+                                {
+                                    "type": "process_connections",
+                                    "pid": pid,
+                                    "request_id": request_id,
+                                    "connections": [],
+                                    "error": str(e),
+                                }
+                            )
+                        )
 
                 elif msg_type == "get_history":
                     minutes = msg.get("duration_minutes", 60)
+                    request_id = msg.get("request_id")
                     rows = database.get_history(minutes)
-                    await websocket.send(json.dumps({
-                        "type": "history",
-                        "data": rows,
-                    }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "history",
+                                "request_id": request_id,
+                                "data": rows,
+                            }
+                        )
+                    )
 
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                logger.debug(f"Invalid JSON from client: {e}")
             except Exception as e:
                 logger.error(f"Error handling message: {e}")
     except websockets.ConnectionClosed:
@@ -143,7 +188,7 @@ async def broadcast_loop():
     db_counter = 0
     while True:
         try:
-            metrics = gather_metrics()
+            metrics = await gather_metrics()
             payload = json.dumps(metrics)
             if connected_clients:
                 await asyncio.gather(
@@ -161,40 +206,48 @@ async def broadcast_loop():
 
 async def main():
     logger.info("Starting Zabmin agent on ws://localhost:8765")
-
-    perf_thread = threading.Thread(target=cpu_state.perf_monitor_loop, daemon=True)
-    perf_thread.start()
-    logger.info("Performance counter thread started")
-
+    _write_pid_file()
     try:
-        server = await websockets.serve(handler, "localhost", 8765)
-    except OSError as e:
-        errno = getattr(e, "winerror", None) or getattr(e, "errno", None)
-        if errno == 10048:
-            logger.error("Port 8765 is already in use. Another agent may be running.")
-            logger.error("Run: taskkill /F /IM python.exe")
-        else:
-            logger.error(f"Failed to bind to port 8765: {e}")
-        return
-    except Exception as e:
-        err_str = str(e).lower()
-        if "10048" in err_str or "socket address" in err_str:
-            logger.error("Port 8765 is already in use. Another agent may be running.")
-            logger.error("Run: taskkill /F /IM python.exe")
-        else:
-            logger.error(f"Failed to start server: {e}")
-        return
+        perf_thread = threading.Thread(target=cpu_state.perf_monitor_loop, daemon=True)
+        perf_thread.start()
+        logger.info("Performance counter thread started")
 
-    logger.info("Server started")
-    try:
-        broadcast_task = asyncio.create_task(broadcast_loop())
-        await broadcast_task
-    except asyncio.CancelledError:
-        pass
+        try:
+            server = await websockets.serve(handler, "localhost", 8765)
+        except OSError as e:
+            errno = getattr(e, "winerror", None) or getattr(e, "errno", None)
+            if errno == 10048:
+                logger.error(
+                    "Port 8765 is already in use. Another agent may be running."
+                )
+            else:
+                logger.error(f"Failed to bind to port 8765: {e}")
+            return
+        except Exception as e:
+            err_str = str(e).lower()
+            if "10048" in err_str or "socket address" in err_str:
+                logger.error(
+                    "Port 8765 is already in use. Another agent may be running."
+                )
+            else:
+                logger.error(f"Failed to start server: {e}")
+            return
+
+        logger.info("Server started")
+        try:
+            broadcast_task = asyncio.create_task(broadcast_loop())
+            await broadcast_task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            server.close()
+            await server.wait_closed()
+            logger.info("Server closed")
     finally:
-        server.close()
-        await server.wait_closed()
-        logger.info("Server closed")
+        try:
+            os.remove(PID_FILE)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

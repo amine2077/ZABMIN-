@@ -21,14 +21,20 @@ class SystemMetrics {
     return SystemMetrics(
       timestamp: json['timestamp'] as int? ?? 0,
       cpu: CPUStats.fromJson(json['cpu'] as Map<String, dynamic>? ?? {}),
-      memory: MemoryStats.fromJson(json['memory'] as Map<String, dynamic>? ?? {}),
+      memory: MemoryStats.fromJson(
+        json['memory'] as Map<String, dynamic>? ?? {},
+      ),
       disk: DiskStats.fromJson(json['disk'] as Map<String, dynamic>? ?? {}),
-      network: NetworkStats.fromJson(json['network'] as Map<String, dynamic>? ?? {}),
-      processes: (json['processes'] as List<dynamic>?)
+      network: NetworkStats.fromJson(
+        json['network'] as Map<String, dynamic>? ?? {},
+      ),
+      processes:
+          (json['processes'] as List<dynamic>?)
               ?.map((p) => ProcessInfo.fromJson(p as Map<String, dynamic>))
               .toList() ??
           [],
-      gpu: (json['gpu'] as List<dynamic>?)
+      gpu:
+          (json['gpu'] as List<dynamic>?)
               ?.map((g) => GPUStats.fromJson(g as Map<String, dynamic>))
               .toList() ??
           [],
@@ -54,7 +60,8 @@ class CPUStats {
   factory CPUStats.fromJson(Map<String, dynamic> json) {
     return CPUStats(
       percentTotal: (json['percent_total'] as num?)?.toDouble() ?? 0.0,
-      percentPerCore: (json['percent_per_core'] as List<dynamic>?)
+      percentPerCore:
+          (json['percent_per_core'] as List<dynamic>?)
               ?.map((e) => (e as num).toDouble())
               .toList() ??
           [],
@@ -103,6 +110,9 @@ class DiskPartition {
   final double usedGb;
   final double freeGb;
   final double percent;
+  final String physicalDrive;
+  final double readMbS;
+  final double writeMbS;
 
   DiskPartition({
     required this.device,
@@ -113,6 +123,9 @@ class DiskPartition {
     required this.usedGb,
     required this.freeGb,
     required this.percent,
+    required this.physicalDrive,
+    required this.readMbS,
+    required this.writeMbS,
   });
 
   factory DiskPartition.fromJson(Map<String, dynamic> json) {
@@ -125,6 +138,9 @@ class DiskPartition {
       usedGb: (json['used_gb'] as num?)?.toDouble() ?? 0.0,
       freeGb: (json['free_gb'] as num?)?.toDouble() ?? 0.0,
       percent: (json['percent'] as num?)?.toDouble() ?? 0.0,
+      physicalDrive: json['physical_drive'] as String? ?? '',
+      readMbS: (json['read_mb_s'] as num?)?.toDouble() ?? 0.0,
+      writeMbS: (json['write_mb_s'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }
@@ -153,7 +169,8 @@ class DiskStats {
       percent: (json['percent'] as num?)?.toDouble() ?? 0.0,
       readMbS: (json['read_mb_s'] as num?)?.toDouble() ?? 0.0,
       writeMbS: (json['write_mb_s'] as num?)?.toDouble() ?? 0.0,
-      partitions: (json['partitions'] as List<dynamic>?)
+      partitions:
+          (json['partitions'] as List<dynamic>?)
               ?.map((p) => DiskPartition.fromJson(p as Map<String, dynamic>))
               .toList() ??
           [],
@@ -213,7 +230,8 @@ class GPUStats {
       vramPercent: (json['vram_percent'] as num?)?.toDouble() ?? 0.0,
       temperatureC: (json['temperature_c'] as num?)?.toDouble() ?? 0.0,
       fanPercent: (json['fan_percent'] as num?)?.toDouble() ?? 0.0,
-      utilizationPercent: (json['utilization_percent'] as num?)?.toDouble() ?? 0.0,
+      utilizationPercent:
+          (json['utilization_percent'] as num?)?.toDouble() ?? 0.0,
       driverVersion: json['driver_version'] as String? ?? '',
     );
   }

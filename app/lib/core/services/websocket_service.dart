@@ -16,9 +16,11 @@ class WebSocketService extends ChangeNotifier {
   String _connectionStatus = 'disconnected';
   final ValueNotifier<SystemMetrics?> metricsNotifier = ValueNotifier(null);
 
-  Completer<List<Map<String, dynamic>>>? _historyCompleter;
-  Completer<List<Map<String, dynamic>>>? _connectionsCompleter;
-  Completer<Map<String, dynamic>>? _killResultCompleter;
+  int _nextRequestId = 1;
+  final Map<int, Completer<List<Map<String, dynamic>>>> _pendingHistory = {};
+  final Map<int, Completer<List<Map<String, dynamic>>>> _pendingConnections =
+      {};
+  final Map<int, Completer<Map<String, dynamic>>> _pendingKillByPid = {};
 
   SystemMetrics? get latest => _latest;
   List<SystemMetrics> get history => List.unmodifiable(_history);
@@ -34,45 +36,48 @@ class WebSocketService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _channel = WebSocketChannel.connect(
-        Uri.parse('ws://localhost:8765'),
-      );
+      _channel = WebSocketChannel.connect(Uri.parse('ws://localhost:8765'));
 
       _subscription = _channel!.stream.listen(
         (dynamic data) {
           _connectionStatus = 'connected';
           try {
             final parsed = jsonDecode(data as String) as Map<String, dynamic>;
-
             final msgType = parsed['type'] as String?;
+            final requestId = parsed['request_id'] as int?;
 
             if (msgType == 'history') {
-              final rows = (parsed['data'] as List<dynamic>?)
+              final rows =
+                  (parsed['data'] as List<dynamic>?)
                       ?.map((r) => Map<String, dynamic>.from(r as Map))
                       .toList() ??
                   [];
-              if (_historyCompleter != null && !_historyCompleter!.isCompleted) {
-                _historyCompleter!.complete(rows);
+              if (requestId != null && _pendingHistory.containsKey(requestId)) {
+                final c = _pendingHistory.remove(requestId)!;
+                if (!c.isCompleted) c.complete(rows);
               }
               return;
             }
 
             if (msgType == 'process_connections') {
-              final conns = (parsed['connections'] as List<dynamic>?)
+              final conns =
+                  (parsed['connections'] as List<dynamic>?)
                       ?.map((c) => Map<String, dynamic>.from(c as Map))
                       .toList() ??
                   [];
-              if (_connectionsCompleter != null &&
-                  !_connectionsCompleter!.isCompleted) {
-                _connectionsCompleter!.complete(conns);
+              if (requestId != null &&
+                  _pendingConnections.containsKey(requestId)) {
+                final c = _pendingConnections.remove(requestId)!;
+                if (!c.isCompleted) c.complete(conns);
               }
               return;
             }
 
             if (msgType == 'kill_result') {
-              if (_killResultCompleter != null &&
-                  !_killResultCompleter!.isCompleted) {
-                _killResultCompleter!.complete(parsed);
+              final pid = parsed['pid'] as int?;
+              if (pid != null && _pendingKillByPid.containsKey(pid)) {
+                final c = _pendingKillByPid.remove(pid)!;
+                if (!c.isCompleted) c.complete(parsed);
               }
               return;
             }
@@ -102,39 +107,90 @@ class WebSocketService extends ChangeNotifier {
     }
   }
 
+  int _allocRequestId() => _nextRequestId++;
+
   void sendMessage(String json) {
     _channel?.sink.add(json);
   }
 
   void killProcess(int pid) {
-    sendMessage(jsonEncode({'type': 'kill_process', 'pid': pid}));
+    final rid = _allocRequestId();
+    final completer = Completer<Map<String, dynamic>>();
+    _pendingKillByPid[pid] = completer;
+    sendMessage(
+      jsonEncode({'type': 'kill_process', 'pid': pid, 'request_id': rid}),
+    );
+    Future.delayed(const Duration(seconds: 5), () {
+      final c = _pendingKillByPid.remove(pid);
+      if (c != null && !c.isCompleted) {
+        c.complete({'success': false, 'error': 'Timeout'});
+      }
+    });
   }
 
   Future<Map<String, dynamic>> waitForKillResult() {
-    _killResultCompleter = Completer<Map<String, dynamic>>();
-    return _killResultCompleter!.future.timeout(
-      const Duration(seconds: 5),
-      onTimeout: () => {'success': false, 'error': 'Timeout'},
-    );
+    if (_pendingKillByPid.isNotEmpty) {
+      final entry = _pendingKillByPid.entries.first;
+      return entry.value.future;
+    }
+    return Future.value({'success': false, 'error': 'No pending kill'});
   }
 
   Future<List<Map<String, dynamic>>> fetchConnections(int pid) {
-    _connectionsCompleter = Completer<List<Map<String, dynamic>>>();
-    sendMessage(jsonEncode({'type': 'get_process_connections', 'pid': pid}));
-    return _connectionsCompleter!.future.timeout(
+    final rid = _allocRequestId();
+    final completer = Completer<List<Map<String, dynamic>>>();
+    _pendingConnections[rid] = completer;
+    sendMessage(
+      jsonEncode({
+        'type': 'get_process_connections',
+        'pid': pid,
+        'request_id': rid,
+      }),
+    );
+    return completer.future.timeout(
       const Duration(seconds: 5),
-      onTimeout: () => [],
+      onTimeout: () {
+        _pendingConnections.remove(rid);
+        return [];
+      },
     );
   }
 
   Future<List<Map<String, dynamic>>> fetchHistory(int minutes) {
-    _historyCompleter = Completer<List<Map<String, dynamic>>>();
+    final rid = _allocRequestId();
+    final completer = Completer<List<Map<String, dynamic>>>();
+    _pendingHistory[rid] = completer;
     sendMessage(
-        jsonEncode({'type': 'get_history', 'duration_minutes': minutes}));
-    return _historyCompleter!.future.timeout(
-      const Duration(seconds: 5),
-      onTimeout: () => [],
+      jsonEncode({
+        'type': 'get_history',
+        'duration_minutes': minutes,
+        'request_id': rid,
+      }),
     );
+    return completer.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        _pendingHistory.remove(rid);
+        return [];
+      },
+    );
+  }
+
+  void _failAllPending() {
+    for (final entry in _pendingHistory.entries) {
+      if (!entry.value.isCompleted) entry.value.complete([]);
+    }
+    _pendingHistory.clear();
+    for (final entry in _pendingConnections.entries) {
+      if (!entry.value.isCompleted) entry.value.complete([]);
+    }
+    _pendingConnections.clear();
+    for (final entry in _pendingKillByPid.entries) {
+      if (!entry.value.isCompleted) {
+        entry.value.complete({'success': false, 'error': 'Disconnected'});
+      }
+    }
+    _pendingKillByPid.clear();
   }
 
   void _handleDisconnect() {
@@ -143,6 +199,7 @@ class WebSocketService extends ChangeNotifier {
     _subscription = null;
     _channel?.sink.close();
     _channel = null;
+    _failAllPending();
     notifyListeners();
     _scheduleReconnect();
   }
@@ -159,6 +216,7 @@ class WebSocketService extends ChangeNotifier {
     _reconnectTimer?.cancel();
     _subscription?.cancel();
     _channel?.sink.close();
+    _failAllPending();
     metricsNotifier.dispose();
     super.dispose();
   }

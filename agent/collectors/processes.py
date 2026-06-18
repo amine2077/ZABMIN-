@@ -25,9 +25,9 @@ def collect():
                 raw_cpu = info["cpu_percent"] or 0.0
 
                 if info["name"].lower() == "system idle process":
-                    cpu_percent = round((100.0 - raw_cpu) / _logical_cpu_count, 1)
-                else:
-                    cpu_percent = round(raw_cpu / _logical_cpu_count, 1)
+                    continue
+
+                cpu_percent = round(raw_cpu / _logical_cpu_count, 1)
 
                 if cpu_percent == 0.0:
                     continue

@@ -16,7 +16,6 @@ _state_lock = threading.Lock()
 PDH = ctypes.windll.pdh
 PDH_HQUERY = ctypes.c_void_p()
 PDH_HCOUNTER_CPU = ctypes.c_void_p()
-PDH_HCOUNTER_RAM = ctypes.c_void_p()
 PDH_FMT_DOUBLE = 0x00000200
 
 class PDH_FMT_COUNTERVALUE_DOUBLE(ctypes.Structure):
@@ -33,12 +32,6 @@ def _init_perf_counters():
         r"\Processor Information(_Total)\% Processor Utility",
         0,
         ctypes.byref(PDH_HCOUNTER_CPU),
-    )
-    PDH.PdhAddEnglishCounterW(
-        PDH_HQUERY,
-        r"\Memory\% Committed Bytes In Use",
-        0,
-        ctypes.byref(PDH_HCOUNTER_RAM),
     )
     PDH.PdhCollectQueryData(PDH_HQUERY)
     time.sleep(1)
@@ -74,7 +67,6 @@ def perf_monitor_loop():
         time.sleep(0.05)
 
         cpu_val = _read_perf_counter(PDH_HCOUNTER_CPU)
-        ram_val = _read_perf_counter(PDH_HCOUNTER_RAM)
 
         try:
             per_core = psutil.cpu_percent(interval=None, percpu=True)
@@ -83,16 +75,19 @@ def perf_monitor_loop():
 
         try:
             vm = psutil.virtual_memory()
+            ram_used = vm.total - vm.available
+            ram_percent = round((ram_used / vm.total) * 100, 1) if vm.total > 0 else 0.0
+            ram_used_gb = round(ram_used / (1024 ** 3), 1)
             ram_total_gb = round(vm.total / (1024 ** 3), 1)
-            ram_used_gb = round(vm.used / (1024 ** 3), 1)
         except Exception:
-            ram_total_gb = 0.0
+            ram_percent = 0.0
             ram_used_gb = 0.0
+            ram_total_gb = 0.0
 
         with _state_lock:
             _cpu_percent_total = round(cpu_val, 1) if cpu_val is not None else 0.0
             _cpu_percent_per_core = [round(v, 1) for v in per_core]
-            _ram_percent = round(ram_val, 1) if ram_val is not None else 0.0
+            _ram_percent = ram_percent
             _ram_used_gb = ram_used_gb
             _ram_total_gb = ram_total_gb
 
@@ -106,11 +101,12 @@ def _perf_monitor_loop_fallback():
         total = psutil.cpu_percent(interval=None)
         per_core = psutil.cpu_percent(interval=None, percpu=True)
         vm = psutil.virtual_memory()
+        ram_used = vm.total - vm.available
         with _state_lock:
             _cpu_percent_total = round(total, 1)
             _cpu_percent_per_core = [round(v, 1) for v in per_core]
-            _ram_percent = round(vm.percent, 1)
-            _ram_used_gb = round(vm.used / (1024 ** 3), 1)
+            _ram_percent = round((ram_used / vm.total) * 100, 1) if vm.total > 0 else 0.0
+            _ram_used_gb = round(ram_used / (1024 ** 3), 1)
             _ram_total_gb = round(vm.total / (1024 ** 3), 1)
 
 

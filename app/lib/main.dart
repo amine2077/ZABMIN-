@@ -22,8 +22,7 @@ Future<void> _startAgent() async {
       final parent = Directory(searchPath!).parent.path;
       if (parent == searchPath) break;
       final segments = Uri.directory(searchPath).pathSegments;
-      final dirName =
-          segments.lastWhere((s) => s.isNotEmpty, orElse: () => '');
+      final dirName = segments.lastWhere((s) => s.isNotEmpty, orElse: () => '');
       if (dirName == 'app') {
         final candidate = Directory('$parent/agent');
         if (await candidate.exists()) {
@@ -38,11 +37,9 @@ Future<void> _startAgent() async {
 
     final vbs = File('$agentDir/run_agent.vbs');
     if (await vbs.exists()) {
-      await Process.start(
-        'wscript',
-        [vbs.path],
-        mode: ProcessStartMode.detached,
-      );
+      await Process.start('wscript', [
+        vbs.path,
+      ], mode: ProcessStartMode.detached);
       stdout.writeln('[Zabmin] Agent started (hidden)');
     } else {
       stderr.writeln('[Zabmin] run_agent.vbs not found at ${vbs.path}');
@@ -140,10 +137,73 @@ class _AppShellState extends State<AppShell> with WindowListener {
 
   @override
   void onWindowClose() async {
-    try {
-      await Process.run('taskkill', ['/F', '/IM', 'python.exe']);
-    } catch (_) {}
+    await _killAgent();
     windowManager.destroy();
+  }
+
+  Future<void> _killAgent() async {
+    try {
+      final appDir = Directory(Platform.script.resolve('.').toFilePath());
+      String searchPath = appDir.path;
+      String? agentDir;
+      while (true) {
+        final parent = Directory(searchPath).parent.path;
+        if (parent == searchPath) break;
+        final segments = Uri.directory(searchPath).pathSegments;
+        final dirName = segments.lastWhere(
+          (s) => s.isNotEmpty,
+          orElse: () => '',
+        );
+        if (dirName == 'app') {
+          final candidate = Directory('$parent/agent');
+          if (await candidate.exists()) agentDir = candidate.path;
+          break;
+        }
+        searchPath = parent;
+      }
+      agentDir ??= Platform.script.resolve('../agent').toFilePath();
+
+      int? pid;
+      final pidFile = File('$agentDir/agent.pid');
+      if (await pidFile.exists()) {
+        final content = (await pidFile.readAsString()).trim();
+        pid = int.tryParse(content);
+      }
+
+      if (pid != null) {
+        try {
+          final check = await Process.run('tasklist', [
+            '/FI',
+            'PID eq $pid',
+            '/FO',
+            'CSV',
+            '/NH',
+          ], runInShell: true);
+          final stdout = (check.stdout as String).toLowerCase();
+          if (stdout.contains('python')) {
+            await Process.run('taskkill', ['/F', '/PID', '$pid']);
+            return;
+          }
+        } catch (_) {}
+      }
+
+      final wmic = await Process.run('wmic', [
+        'process',
+        'where',
+        "name='python.exe' and CommandLine like '%agent.py%'",
+        'get',
+        'ProcessId',
+        '/format:list',
+      ], runInShell: true);
+      final out = (wmic.stdout as String);
+      for (final line in out.split('\n')) {
+        final m = RegExp(r'ProcessId=(\d+)').firstMatch(line);
+        if (m != null) {
+          final p = m.group(1)!;
+          await Process.run('taskkill', ['/F', '/PID', p]);
+        }
+      }
+    } catch (_) {}
   }
 
   @override
@@ -174,12 +234,14 @@ class _AppShellState extends State<AppShell> with WindowListener {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('Zabmin',
-                            style: GoogleFonts.inter(
-                              fontSize: 32,
-                              fontWeight: FontWeight.w800,
-                              color: ZColors.textPrimary,
-                            )),
+                        Text(
+                          'Zabmin',
+                          style: GoogleFonts.inter(
+                            fontSize: 32,
+                            fontWeight: FontWeight.w800,
+                            color: ZColors.textPrimary,
+                          ),
+                        ),
                         const SizedBox(height: 24),
                         const CircularProgressIndicator(
                           color: ZColors.accent,
@@ -225,21 +287,24 @@ class _AppShellState extends State<AppShell> with WindowListener {
         child: Row(
           children: [
             const SizedBox(width: 12),
-            Text('Zabmin',
-                style: GoogleFonts.inter(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: ZColors.textSecondary,
-                )),
+            Text(
+              'Zabmin',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: ZColors.textSecondary,
+              ),
+            ),
             const Spacer(),
             _WindowButton(
               icon: Icons.remove,
               onPressed: () => windowManager.minimize(),
             ),
             _WindowButton(
-              icon: _isMaximized
-                  ? Icons.filter_none_rounded
-                  : Icons.crop_square_rounded,
+              icon:
+                  _isMaximized
+                      ? Icons.filter_none_rounded
+                      : Icons.crop_square_rounded,
               onPressed: () async {
                 if (_isMaximized) {
                   await windowManager.unmaximize();
@@ -280,12 +345,12 @@ class _WindowButtonState extends State<_WindowButton> {
 
   @override
   Widget build(BuildContext context) {
-    final bgColor = _hovering
-        ? (widget.isClose ? ZColors.red : ZColors.surface)
-        : Colors.transparent;
-    final iconColor = _hovering && widget.isClose
-        ? Colors.white
-        : ZColors.textSecondary;
+    final bgColor =
+        _hovering
+            ? (widget.isClose ? ZColors.red : ZColors.surface)
+            : Colors.transparent;
+    final iconColor =
+        _hovering && widget.isClose ? Colors.white : ZColors.textSecondary;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),

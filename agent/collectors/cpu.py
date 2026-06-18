@@ -1,12 +1,14 @@
 import psutil
 
-from cpu_state import get_cpu_data
+import cpu_state
 
 
 def collect():
     """Collect CPU metrics from the monitor thread."""
     try:
-        total, per_core = get_cpu_data()
+        state = cpu_state.read_state()
+        total = state["cpu_total"]
+        per_core = state["cpu_per_core"]
         freq = psutil.cpu_freq()
         freq_mhz = round(freq.current) if freq else 0
         return {

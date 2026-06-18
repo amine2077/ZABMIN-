@@ -1,117 +1,220 @@
 import logging
+import ctypes
+from ctypes import wintypes
 
 logger = logging.getLogger(__name__)
 
 _nvml_initialized = False
-_gpu_count = 0
+_nvml_count = 0
 
 try:
     import pynvml
+
     pynvml.nvmlInit()
-    _gpu_count = pynvml.nvmlDeviceGetCount()
-    _nvml_initialized = _gpu_count > 0
+    _nvml_count = pynvml.nvmlDeviceGetCount()
+    _nvml_initialized = _nvml_count > 0
     if _nvml_initialized:
-        logger.info(f"NVML initialized: {_gpu_count} GPU(s) found")
+        logger.info(f"NVML initialized: {_nvml_count} GPU(s)")
 except Exception as e:
     logger.info(f"NVML not available: {e}")
 
-_wmi_gpu_info = None
-_wmi_gpu_fetched = False
+
+def _dxgi_dedicated_vram():
+    """Return a list of (name_lower, dedicated_mb) via DXGI for each adapter."""
+    try:
+        dxgi = ctypes.windll.dxgi
+        factory_iid = bytes.fromhex("a86f7518c0f4d84cb291c629e7437d20")
+        factory = ctypes.c_void_p()
+        hr = dxgi.CreateDXGIFactory(factory_iid, ctypes.byref(factory))
+        if hr != 0 or not factory.value:
+            return []
+
+        class LUID(ctypes.Structure):
+            _fields_ = [("LowPart", wintypes.DWORD), ("HighPart", wintypes.LONG)]
+
+        class DESC(ctypes.Structure):
+            _fields_ = [
+                ("Description", ctypes.c_wchar * 128),
+                ("VendorId", wintypes.UINT),
+                ("DeviceId", wintypes.UINT),
+                ("SubSysId", wintypes.UINT),
+                ("Revision", wintypes.UINT),
+                ("DedicatedVideoMemory", ctypes.c_size_t),
+                ("DedicatedSystemMemory", ctypes.c_size_t),
+                ("SharedSystemMemory", ctypes.c_size_t),
+                ("Luid", LUID),
+                ("Flags", wintypes.UINT),
+            ]
+
+        class VTable(ctypes.Structure):
+            _fields_ = [
+                ("QueryInterface", ctypes.c_void_p),
+                ("AddRef", ctypes.c_void_p),
+                ("Release", ctypes.c_void_p),
+                ("EnumAdapters", ctypes.c_void_p),
+            ]
+
+        results = []
+        i = 0
+        while True:
+            adapter = ctypes.c_void_p()
+            vtbl = ctypes.cast(factory.value, ctypes.POINTER(ctypes.c_void_p))[0]
+            vtbl = ctypes.cast(vtbl, ctypes.POINTER(VTable))
+            enum_fn = ctypes.WINFUNCTYPE(
+                ctypes.c_long,
+                ctypes.c_void_p,
+                wintypes.UINT,
+                ctypes.POINTER(ctypes.c_void_p),
+            )(vtbl.contents.EnumAdapters)
+            hr = enum_fn(factory.value, i, ctypes.byref(adapter))
+            if hr != 0 or not adapter.value:
+                break
+
+            class AdapterVTable(ctypes.Structure):
+                _fields_ = [
+                    ("QueryInterface", ctypes.c_void_p),
+                    ("AddRef", ctypes.c_void_p),
+                    ("Release", ctypes.c_void_p),
+                    ("GetDesc", ctypes.c_void_p),
+                ]
+
+            a_vtbl = ctypes.cast(
+                ctypes.cast(adapter.value, ctypes.POINTER(ctypes.c_void_p))[0],
+                ctypes.POINTER(AdapterVTable),
+            )
+            get_desc = ctypes.WINFUNCTYPE(
+                ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(DESC)
+            )(a_vtbl.contents.GetDesc)
+            desc = DESC()
+            hr = get_desc(adapter.value, ctypes.byref(desc))
+
+            rel_fn = ctypes.WINFUNCTYPE(ctypes.c_long)(
+                ctypes.cast(
+                    ctypes.cast(adapter.value, ctypes.POINTER(ctypes.c_void_p))[0],
+                    ctypes.POINTER(ctypes.c_void_p * 3),
+                ).contents[2]
+            )
+            rel_fn(adapter.value)
+
+            if hr == 0:
+                name = desc.Description.strip("\x00").strip()
+                vram_mb = round(desc.DedicatedVideoMemory / (1024**2), 1)
+                results.append((name.lower(), vram_mb))
+            i += 1
+
+        return results
+    except Exception as e:
+        logger.debug(f"DXGI query failed: {e}")
+        return []
 
 
 def _get_wmi_gpu_static():
-    global _wmi_gpu_info, _wmi_gpu_fetched
-    if _wmi_gpu_fetched:
-        return _wmi_gpu_info
-    _wmi_gpu_fetched = True
     try:
         import wmi
+
         c = wmi.WMI()
         gpus = []
         for gpu in c.Win32_VideoController():
             vram_mb = round((gpu.AdapterRAM or 0) / (1024**2))
-            gpus.append({
-                "name": gpu.Name or "Unknown GPU",
-                "vram_total_mb": float(vram_mb),
-                "vram_used_mb": 0.0,
-                "vram_percent": 0.0,
-                "temperature_c": 0.0,
-                "fan_percent": 0.0,
-                "utilization_percent": 0.0,
-                "driver_version": gpu.DriverVersion or "",
-            })
-        _wmi_gpu_info = gpus
+            gpus.append(
+                {
+                    "name": (gpu.Name or "Unknown GPU").strip(),
+                    "vram_total_mb": float(vram_mb),
+                    "vram_used_mb": 0.0,
+                    "vram_percent": 0.0,
+                    "temperature_c": 0.0,
+                    "fan_percent": 0.0,
+                    "utilization_percent": 0.0,
+                    "driver_version": gpu.DriverVersion or "",
+                }
+            )
         return gpus
     except Exception as e:
         logger.warning(f"WMI GPU query failed: {e}")
-        _wmi_gpu_info = []
         return []
 
 
 def _get_intel_gpu_utilization():
-    """Get Intel/AMD GPU 3D engine utilization via WMI performance counters."""
+    """Aggregate 3D engine utilization across GPU adapters via WMI perf counters."""
     try:
         import wmi
-        perf = wmi.WMI(namespace="root\\cimv2")
-        total_3d = 0.0
-        count = 0
+
+        perf = wmi.WMI(namespace=r"root\cimv2")
+        totals = {}
         for item in perf.Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine():
             name = item.Name or ""
-            if "engtype_3D" in name:
-                total_3d += float(item.UtilizationPercentage or 0)
-                count += 1
-        if count > 0:
-            return min(total_3d, 100.0)
+            if "engtype_3D" not in name:
+                continue
+            try:
+                util = float(item.UtilizationPercentage or 0)
+            except ValueError:
+                util = 0.0
+            luid_start = name.find("luid_")
+            luid_end = name.find("_phys", luid_start)
+            key = (
+                name[luid_start:luid_end]
+                if luid_start >= 0 and luid_end > luid_start
+                else "global"
+            )
+            totals[key] = max(totals.get(key, 0.0), util)
+        if totals:
+            return min(sum(totals.values()), 100.0)
         return 0.0
     except Exception as e:
         logger.debug(f"GPU perf counter failed: {e}")
         return 0.0
 
 
-def _get_wmi_gpu_dedicated_memory():
-    """Try to get dedicated video memory usage from DXGI or WMI."""
-    try:
-        import wmi
-        c = wmi.WMI()
-        for gpu in c.Win32_VideoController():
-            dedicated_used = getattr(gpu, "AdapterRAM", 0) or 0
-            return round(dedicated_used / (1024**2))
-    except Exception:
-        pass
-    return 0
+def _name_matches(name_a, name_b):
+    """Loose name match ignoring case and trailing tokens like 'Microsoft Corporation - ...'."""
+    a = name_a.lower()
+    b = name_b.lower()
+    if a == b:
+        return True
+    return a.startswith(b) or b.startswith(a) or a in b or b in a
 
 
 def collect():
-    """Collect GPU metrics. Uses NVML for NVIDIA, falls back to WMI for Intel/AMD."""
+    """Collect GPU metrics. NVML for NVIDIA + WMI for Intel/AMD (combined, no short-circuit)."""
+    gpus = []
+    seen_names = []
+
     if _nvml_initialized:
         try:
-            gpus = []
-            for i in range(_gpu_count):
+            for i in range(_nvml_count):
                 handle = pynvml.nvmlDeviceGetHandleByIndex(i)
                 name = pynvml.nvmlDeviceGetName(handle)
                 if isinstance(name, bytes):
                     name = name.decode("utf-8")
+                name = name.strip()
 
                 mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
                 vram_total_mb = round(mem_info.total / (1024**2), 1)
                 vram_used_mb = round(mem_info.used / (1024**2), 1)
-                vram_percent = round((mem_info.used / mem_info.total) * 100, 1) if mem_info.total > 0 else 0.0
+                vram_percent = (
+                    round((mem_info.used / mem_info.total) * 100, 1)
+                    if mem_info.total > 0
+                    else 0.0
+                )
 
                 try:
-                    temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+                    temp = float(
+                        pynvml.nvmlDeviceGetTemperature(
+                            handle, pynvml.NVML_TEMPERATURE_GPU
+                        )
+                    )
                 except Exception:
-                    temp = 0
+                    temp = 0.0
 
                 try:
-                    fan = pynvml.nvmlDeviceGetFanSpeed(handle)
+                    fan = float(pynvml.nvmlDeviceGetFanSpeed(handle))
                 except Exception:
-                    fan = 0
+                    fan = 0.0
 
                 try:
-                    utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
-                    gpu_util = utilization.gpu
+                    util = float(pynvml.nvmlDeviceGetUtilizationRates(handle).gpu)
                 except Exception:
-                    gpu_util = 0
+                    util = 0.0
 
                 try:
                     driver = pynvml.nvmlSystemGetDriverVersion()
@@ -120,36 +223,46 @@ def collect():
                 except Exception:
                     driver = ""
 
-                gpus.append({
-                    "name": name,
-                    "vram_total_mb": vram_total_mb,
-                    "vram_used_mb": vram_used_mb,
-                    "vram_percent": vram_percent,
-                    "temperature_c": float(temp),
-                    "fan_percent": float(fan),
-                    "utilization_percent": float(gpu_util),
-                    "driver_version": driver,
-                })
-            return gpus
+                gpus.append(
+                    {
+                        "name": name,
+                        "vram_total_mb": vram_total_mb,
+                        "vram_used_mb": vram_used_mb,
+                        "vram_percent": vram_percent,
+                        "temperature_c": temp,
+                        "fan_percent": fan,
+                        "utilization_percent": util,
+                        "driver_version": driver,
+                    }
+                )
+                seen_names.append(name)
         except Exception as e:
             logger.warning(f"NVML collect failed: {e}")
 
-    gpus = _get_wmi_gpu_static()
+    wmi_gpus = _get_wmi_gpu_static()
+    for wg in wmi_gpus:
+        wname = wg["name"]
+        if any(_name_matches(wname, sn) for sn in seen_names):
+            continue
+        gpus.append(wg)
+        seen_names.append(wname)
+
     if not gpus:
         return []
 
-    utilization = _get_intel_gpu_utilization()
+    dxgi = _dxgi_dedicated_vram()
+    if dxgi:
+        for g in gpus:
+            for dxgi_name, vram in dxgi:
+                if _name_matches(g["name"], dxgi_name) and vram > g["vram_total_mb"]:
+                    g["vram_total_mb"] = vram
+                    break
 
-    result = []
-    for gpu in gpus:
-        result.append({
-            "name": gpu["name"],
-            "vram_total_mb": gpu["vram_total_mb"],
-            "vram_used_mb": 0.0,
-            "vram_percent": 0.0,
-            "temperature_c": 0.0,
-            "fan_percent": 0.0,
-            "utilization_percent": utilization,
-            "driver_version": gpu["driver_version"],
-        })
-    return result
+    has_util = any(g["utilization_percent"] > 0 for g in gpus)
+    if not has_util:
+        util = _get_intel_gpu_utilization()
+        for g in gpus:
+            if g["utilization_percent"] == 0:
+                g["utilization_percent"] = util
+
+    return gpus

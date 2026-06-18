@@ -1,16 +1,27 @@
 """SQLite database for storing metrics history."""
 import sqlite3
 import os
+import time
+import logging
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "zabmin_history.db")
 
+# Module-level persistent connection
+_conn = None
+_insert_counter = 0
+
 
 def _get_conn():
-    """Get or create a database connection."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    """Get or create the module-level database connection."""
+    global _conn
+    if _conn is not None:
+        return _conn
+    _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    _conn.execute("PRAGMA journal_mode=WAL")
+    return _conn
 
 
 def init_db():
@@ -31,11 +42,27 @@ def init_db():
         )
     """)
     conn.commit()
-    conn.close()
+
+
+def cleanup_old_data(days=7):
+    """Delete rows older than the specified number of days."""
+    try:
+        cutoff = int(time.time()) - (days * 86400)
+        conn = _get_conn()
+        cursor = conn.execute(
+            "DELETE FROM metrics WHERE timestamp < ?", (cutoff,)
+        )
+        conn.commit()
+        deleted = cursor.rowcount
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} metrics rows older than {days} days")
+    except Exception as e:
+        logger.warning(f"Failed to cleanup old data: {e}")
 
 
 def insert_metrics(metrics):
     """Insert a metrics row into the database."""
+    global _insert_counter
     try:
         conn = _get_conn()
         conn.execute(
@@ -57,9 +84,13 @@ def insert_metrics(metrics):
             ),
         )
         conn.commit()
-        conn.close()
-    except Exception:
-        pass
+
+        _insert_counter += 1
+        if _insert_counter >= 1000:
+            _insert_counter = 0
+            cleanup_old_data()
+    except Exception as e:
+        logger.warning(f"Failed to insert metrics: {e}")
 
 
 def get_history(duration_minutes=60):
@@ -73,9 +104,10 @@ def get_history(duration_minutes=60):
             (cutoff,),
         )
         rows = [dict(row) for row in cursor.fetchall()]
-        conn.close()
+        conn.row_factory = None
         return rows
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to get history: {e}")
         return []
 
 
