@@ -82,7 +82,6 @@ class _ExportDialogState extends State<ExportDialog> {
         fileName: ReportExporter.suggestedFilename(_format),
         type: FileType.custom,
         allowedExtensions: [_format == ReportFormat.csv ? 'csv' : 'json'],
-        bytes: bytes,
       );
     } catch (e) {
       outPath = null;
@@ -198,16 +197,16 @@ class _ExportDialogState extends State<ExportDialog> {
                   ChoiceChip(
                     label: const Text('CSV'),
                     selected: _format == ReportFormat.csv,
-                    onSelected: (_) =>
-                        setState(() => _format = ReportFormat.csv),
+                    onSelected:
+                        (_) => setState(() => _format = ReportFormat.csv),
                     selectedColor: ZColors.accent.withValues(alpha: 0.22),
                     side: BorderSide(color: ZColors.border),
                   ),
                   ChoiceChip(
                     label: const Text('JSON'),
                     selected: _format == ReportFormat.json,
-                    onSelected: (_) =>
-                        setState(() => _format = ReportFormat.json),
+                    onSelected:
+                        (_) => setState(() => _format = ReportFormat.json),
                     selectedColor: ZColors.accent.withValues(alpha: 0.22),
                     side: BorderSide(color: ZColors.border),
                   ),
@@ -233,16 +232,17 @@ class _ExportDialogState extends State<ExportDialog> {
                   const SizedBox(width: 10),
                   FilledButton.icon(
                     onPressed: _busy ? null : _export,
-                    icon: _busy
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.download_rounded, size: 16),
+                    icon:
+                        _busy
+                            ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                            : const Icon(Icons.download_rounded, size: 16),
                     label: Text(_busy ? 'Exporting...' : 'Export'),
                   ),
                 ],
