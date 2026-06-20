@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:launch_at_startup/launch_at_startup.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsService extends ChangeNotifier {
@@ -61,6 +62,15 @@ class SettingsService extends ChangeNotifier {
   }
 
   Future<void> setLaunchAtStartup(bool value) async {
+    try {
+      if (value) {
+        await launchAtStartup.enable();
+      } else {
+        await launchAtStartup.disable();
+      }
+    } catch (e) {
+      debugPrint('[SettingsService] launch_at_startup toggle failed: $e');
+    }
     await _prefs?.setBool('launch_at_startup', value);
     notifyListeners();
   }

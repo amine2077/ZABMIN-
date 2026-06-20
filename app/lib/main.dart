@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:launch_at_startup/launch_at_startup.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -67,6 +68,11 @@ void main() async {
 
   final settingsService = SettingsService();
   await settingsService.load();
+
+  launchAtStartup.setup(
+    appName: 'Zabmin',
+    appPath: Platform.resolvedExecutable,
+  );
 
   await windowManager.ensureInitialized();
 
