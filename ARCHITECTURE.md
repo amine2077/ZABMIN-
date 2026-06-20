@@ -99,6 +99,7 @@ psutil.cpu_percent(interval=1) [thread]
 **Client → Server:**
 ```json
 {"type": "get_history", "duration_minutes": 60}
+{"type": "shutdown"}
 ```
 
 **Server → Client (response):**

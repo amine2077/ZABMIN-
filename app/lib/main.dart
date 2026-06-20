@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -179,8 +180,22 @@ class _AppShellState extends State<AppShell> with WindowListener {
       }
       agentDir ??= Platform.script.resolve('../agent').toFilePath();
 
-      int? pid;
       final pidFile = File('$agentDir/agent.pid');
+
+      if (mounted) {
+        try {
+          final ws = context.read<WebSocketService>();
+          if (ws.connectionStatus == 'connected') {
+            ws.sendMessage(jsonEncode({'type': 'shutdown'}));
+            for (int i = 0; i < 20; i++) {
+              await Future.delayed(const Duration(milliseconds: 100));
+              if (!await pidFile.exists()) return;
+            }
+          }
+        } catch (_) {}
+      }
+
+      int? pid;
       if (await pidFile.exists()) {
         final content = (await pidFile.readAsString()).trim();
         pid = int.tryParse(content);
@@ -354,9 +369,10 @@ class _AppShellState extends State<AppShell> with WindowListener {
               onPressed: () => windowManager.minimize(),
             ),
             _WindowButton(
-              icon: _isMaximized
-                  ? Icons.filter_none_rounded
-                  : Icons.crop_square_rounded,
+              icon:
+                  _isMaximized
+                      ? Icons.filter_none_rounded
+                      : Icons.crop_square_rounded,
               onPressed: () async {
                 if (_isMaximized) {
                   await windowManager.unmaximize();
@@ -397,12 +413,12 @@ class _WindowButtonState extends State<_WindowButton> {
 
   @override
   Widget build(BuildContext context) {
-    final bgColor = _hovering
-        ? (widget.isClose ? ZColors.red : ZColors.surface)
-        : Colors.transparent;
-    final iconColor = _hovering && widget.isClose
-        ? Colors.white
-        : ZColors.textSecondary;
+    final bgColor =
+        _hovering
+            ? (widget.isClose ? ZColors.red : ZColors.surface)
+            : Colors.transparent;
+    final iconColor =
+        _hovering && widget.isClose ? Colors.white : ZColors.textSecondary;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),

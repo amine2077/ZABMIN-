@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent.pid")
 
 connected_clients = set()
+_shutdown_event = asyncio.Event()
 
 
 def _write_pid_file():
@@ -172,6 +173,11 @@ async def handler(websocket):
                         )
                     )
 
+                elif msg_type == "shutdown":
+                    logger.info("Shutdown requested via WebSocket")
+                    _shutdown_event.set()
+                    break
+
             except json.JSONDecodeError as e:
                 logger.debug(f"Invalid JSON from client: {e}")
             except Exception as e:
@@ -187,7 +193,7 @@ async def handler(websocket):
 
 async def broadcast_loop():
     db_counter = 0
-    while True:
+    while not _shutdown_event.is_set():
         try:
             metrics = await gather_metrics()
             payload = json.dumps(metrics)
@@ -202,7 +208,10 @@ async def broadcast_loop():
                 db_counter = 0
         except Exception as e:
             logger.error(f"Error collecting metrics: {e}")
-        await asyncio.sleep(1)
+        try:
+            await asyncio.wait_for(_shutdown_event.wait(), timeout=1)
+        except asyncio.TimeoutError:
+            pass
 
 
 async def main():
