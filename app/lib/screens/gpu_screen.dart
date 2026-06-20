@@ -8,7 +8,7 @@ import '../core/theme/zcolors.dart';
 import '../widgets/animated_metric.dart';
 import '../widgets/circular_progress_arc.dart';
 import '../widgets/glass_card.dart';
-import '../widgets/gpu_chart.dart';
+import '../widgets/metric_chart.dart';
 import '../widgets/screen_shell.dart';
 
 class GpuScreen extends StatelessWidget {
@@ -37,9 +37,10 @@ class GpuScreen extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: LinearGradient(
-                      colors: ZColors.gradientGpu
-                          .map((c) => c.withValues(alpha: 0.15))
-                          .toList(),
+                      colors:
+                          ZColors.gradientGpu
+                              .map((c) => c.withValues(alpha: 0.15))
+                              .toList(),
                     ),
                   ),
                   child: const Icon(
@@ -76,7 +77,32 @@ class GpuScreen extends StatelessWidget {
               (g) => g.utilizationPercent > 0 || g.temperatureC > 0,
             )) ...[
               const SizedBox(height: 20),
-              GPUChart(history: service.history),
+              MetricChart(
+                title: 'GPU Load',
+                history: service.history,
+                accentGradient: ZColors.gradientGpu,
+                showLegend: true,
+                series: [
+                  ChartSeries(
+                    label: 'Utilization',
+                    gradient: ZColors.gradientGpu,
+                    liveExtractor:
+                        (m) =>
+                            m.gpu.isNotEmpty
+                                ? m.gpu.first.utilizationPercent
+                                : 0.0,
+                    historyKey: 'gpu_percent',
+                  ),
+                  ChartSeries(
+                    label: 'VRAM',
+                    gradient: ZColors.gradientRam,
+                    liveExtractor:
+                        (m) => m.gpu.isNotEmpty ? m.gpu.first.vramPercent : 0.0,
+                    historyKey: 'gpu_vram_percent',
+                    barWidth: 2,
+                  ),
+                ],
+              ),
             ],
           ],
         );
@@ -107,9 +133,10 @@ class _GpuCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: ZRadii.inner,
                   gradient: LinearGradient(
-                    colors: ZColors.gradientGpu
-                        .map((c) => c.withValues(alpha: 0.18))
-                        .toList(),
+                    colors:
+                        ZColors.gradientGpu
+                            .map((c) => c.withValues(alpha: 0.18))
+                            .toList(),
                   ),
                   border: Border.all(color: ZColors.border),
                 ),
@@ -159,9 +186,10 @@ class _GpuCard extends StatelessWidget {
                 Expanded(
                   child: _GpuStat(
                     label: gpu.vramUsedMb > 0 ? 'VRAM Used' : 'VRAM',
-                    value: gpu.vramUsedMb > 0
-                        ? '${gpu.vramUsedMb.toStringAsFixed(0)} MB'
-                        : 'Shared',
+                    value:
+                        gpu.vramUsedMb > 0
+                            ? '${gpu.vramUsedMb.toStringAsFixed(0)} MB'
+                            : 'Shared',
                     color: ZColors.usageColor(gpu.vramPercent),
                   ),
                 ),
@@ -178,9 +206,10 @@ class _GpuCard extends StatelessWidget {
               Expanded(
                 child: _GpuStat(
                   label: 'Utilization',
-                  value: gpu.utilizationPercent > 0
-                      ? '${gpu.utilizationPercent.toStringAsFixed(1)}%'
-                      : 'N/A',
+                  value:
+                      gpu.utilizationPercent > 0
+                          ? '${gpu.utilizationPercent.toStringAsFixed(1)}%'
+                          : 'N/A',
                   color: utilColor,
                 ),
               ),
@@ -299,9 +328,8 @@ class _BarSection extends StatelessWidget {
               duration: const Duration(milliseconds: 600),
               curve: Curves.easeOutCubic,
               builder: (context, v, _) {
-                final text = detail.contains('%')
-                    ? '${v.toStringAsFixed(1)}%'
-                    : detail;
+                final text =
+                    detail.contains('%') ? '${v.toStringAsFixed(1)}%' : detail;
                 return Text(
                   text,
                   style: ZText.body.copyWith(

@@ -6,7 +6,7 @@ import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
 import '../widgets/animated_metric.dart';
 import '../widgets/glass_card.dart';
-import '../widgets/network_chart.dart';
+import '../widgets/metric_chart.dart';
 import '../widgets/screen_shell.dart';
 
 class NetworkScreen extends StatelessWidget {
@@ -74,7 +74,28 @@ class NetworkScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 20),
-            NetworkChart(history: service.history),
+            MetricChart(
+              title: 'Network Throughput',
+              history: service.history,
+              accentGradient: ZColors.gradientNet,
+              fixedMaxY: false,
+              showLegend: true,
+              series: [
+                ChartSeries(
+                  label: 'Download',
+                  gradient: ZColors.gradientNet,
+                  liveExtractor: (m) => m.network.recvMbS,
+                  historyKey: 'net_recv_mb_s',
+                ),
+                ChartSeries(
+                  label: 'Upload',
+                  gradient: ZColors.gradientGpu,
+                  liveExtractor: (m) => m.network.sentMbS,
+                  historyKey: 'net_sent_mb_s',
+                  barWidth: 2,
+                ),
+              ],
+            ),
             const SizedBox(height: 20),
             GlassCard(
               hoverable: false,
@@ -148,9 +169,8 @@ class _ThroughputCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: ZRadii.inner,
                   gradient: LinearGradient(
-                    colors: gradient
-                        .map((c) => c.withValues(alpha: 0.18))
-                        .toList(),
+                    colors:
+                        gradient.map((c) => c.withValues(alpha: 0.18)).toList(),
                   ),
                   border: Border.all(color: ZColors.border),
                 ),

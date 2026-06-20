@@ -11,7 +11,7 @@ import '../core/theme/zcolors.dart';
 import '../widgets/app_rail.dart';
 import '../widgets/metric_card.dart';
 import '../widgets/metric_grid.dart';
-import '../widgets/cpu_chart.dart';
+import '../widgets/metric_chart.dart';
 import '../widgets/process_table.dart';
 import 'processes_screen.dart';
 import 'network_screen.dart';
@@ -39,11 +39,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             wide
                 ? _buildSidebar()
                 : AppRail(
-                    selectedNav: _selectedNav,
-                    onNavSelected: (label) =>
-                        setState(() => _selectedNav = label),
-                    bottom: const _ConnectionBadge(compact: true),
-                  ),
+                  selectedNav: _selectedNav,
+                  onNavSelected:
+                      (label) => setState(() => _selectedNav = label),
+                  bottom: const _ConnectionBadge(compact: true),
+                ),
             Expanded(child: _buildContent()),
           ],
         );
@@ -183,13 +183,15 @@ class _SidebarTile extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
             decoration: BoxDecoration(
               borderRadius: ZRadii.inner,
-              gradient: isSelected
-                  ? LinearGradient(
-                      colors: item.gradient
-                          .map((c) => c.withValues(alpha: 0.18))
-                          .toList(),
-                    )
-                  : null,
+              gradient:
+                  isSelected
+                      ? LinearGradient(
+                        colors:
+                            item.gradient
+                                .map((c) => c.withValues(alpha: 0.18))
+                                .toList(),
+                      )
+                      : null,
             ),
             child: Row(
               children: [
@@ -200,33 +202,34 @@ class _SidebarTile extends StatelessWidget {
                   margin: const EdgeInsets.only(right: 12),
                   decoration: BoxDecoration(
                     borderRadius: ZRadii.pill,
-                    gradient: isSelected
-                        ? LinearGradient(colors: item.gradient)
-                        : null,
+                    gradient:
+                        isSelected
+                            ? LinearGradient(colors: item.gradient)
+                            : null,
                     color: isSelected ? null : ZColors.hairline,
-                    boxShadow: isSelected
-                        ? ZShadows.hairlineGlow(item.gradient.last)
-                        : null,
+                    boxShadow:
+                        isSelected
+                            ? ZShadows.hairlineGlow(item.gradient.last)
+                            : null,
                   ),
                 ),
                 Icon(
                   item.icon,
                   size: 18,
-                  color: isSelected
-                      ? item.gradient.first
-                      : ZColors.textSecondary,
+                  color:
+                      isSelected ? item.gradient.first : ZColors.textSecondary,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     item.label,
                     style: ZText.body.copyWith(
-                      fontWeight: isSelected
-                          ? FontWeight.w700
-                          : FontWeight.w500,
-                      color: isSelected
-                          ? ZColors.textPrimary
-                          : ZColors.textSecondary,
+                      fontWeight:
+                          isSelected ? FontWeight.w700 : FontWeight.w500,
+                      color:
+                          isSelected
+                              ? ZColors.textPrimary
+                              : ZColors.textSecondary,
                     ),
                   ),
                 ),
@@ -449,9 +452,9 @@ class _DashboardHome extends StatelessWidget {
                         label: 'Network',
                         value: metrics.network.recvMbS.toStringAsFixed(1),
                         unit: 'MB/s',
-                        percent:
-                            (metrics.network.recvMbS + metrics.network.sentMbS)
-                                .clamp(0, 100),
+                        percent: (metrics.network.recvMbS +
+                                metrics.network.sentMbS)
+                            .clamp(0, 100),
                         icon: Icons.wifi_rounded,
                         gradient: ZColors.gradientNet,
                       ),
@@ -475,13 +478,15 @@ class _DashboardHome extends StatelessWidget {
                         ),
                         MetricCard(
                           label: 'GPU Temp',
-                          value: gpus.first.temperatureC > 0
-                              ? gpus.first.temperatureC.toStringAsFixed(0)
-                              : '—',
+                          value:
+                              gpus.first.temperatureC > 0
+                                  ? gpus.first.temperatureC.toStringAsFixed(0)
+                                  : '—',
                           unit: gpus.first.temperatureC > 0 ? '°C' : '',
-                          percent: gpus.first.temperatureC > 0
-                              ? gpus.first.temperatureC.clamp(0, 100)
-                              : 0,
+                          percent:
+                              gpus.first.temperatureC > 0
+                                  ? gpus.first.temperatureC.clamp(0, 100)
+                                  : 0,
                           icon: Icons.thermostat_rounded,
                           gradient: ZColors.gradientDisk,
                         ),
@@ -489,7 +494,20 @@ class _DashboardHome extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 28),
-                  CPUChart(history: wsService.history),
+                  MetricChart(
+                    title: 'CPU Usage',
+                    history: wsService.history,
+                    accentGradient: ZColors.gradientCpu,
+                    series: [
+                      ChartSeries(
+                        label: 'CPU',
+                        gradient: ZColors.gradientCpu,
+                        liveExtractor: (m) => m.cpu.percentTotal,
+                        historyKey: 'cpu_percent',
+                      ),
+                    ],
+                    showTooltip: true,
+                  ),
                   const SizedBox(height: 24),
                   ProcessTable(processes: metrics.processes),
                 ],

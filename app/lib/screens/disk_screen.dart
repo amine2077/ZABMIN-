@@ -6,7 +6,7 @@ import '../core/services/websocket_service.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
 import '../widgets/animated_metric.dart';
-import '../widgets/disk_chart.dart';
+import '../widgets/metric_chart.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/screen_shell.dart';
 
@@ -80,12 +80,12 @@ class DiskScreen extends StatelessWidget {
               );
               return [
                 _DiskGroupCard(
-                  title: parts.first.physicalDrive.isNotEmpty
-                      ? parts.first.physicalDrive
-                      : 'Volume',
-                  subtitle: parts.first.label.isNotEmpty
-                      ? parts.first.label
-                      : 'Disk',
+                  title:
+                      parts.first.physicalDrive.isNotEmpty
+                          ? parts.first.physicalDrive
+                          : 'Volume',
+                  subtitle:
+                      parts.first.label.isNotEmpty ? parts.first.label : 'Disk',
                   readMbS: driveRead,
                   writeMbS: driveWrite,
                   partitions: parts,
@@ -94,7 +94,19 @@ class DiskScreen extends StatelessWidget {
               ];
             }),
             const SizedBox(height: 8),
-            DiskChart(history: service.history),
+            MetricChart(
+              title: 'Disk Usage',
+              history: service.history,
+              accentGradient: ZColors.gradientDisk,
+              series: [
+                ChartSeries(
+                  label: 'Disk',
+                  gradient: ZColors.gradientDisk,
+                  liveExtractor: (m) => m.disk.percent,
+                  historyKey: 'disk_percent',
+                ),
+              ],
+            ),
           ],
         );
       },
@@ -224,9 +236,10 @@ class _DiskGroupCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: ZRadii.inner,
                   gradient: LinearGradient(
-                    colors: ZColors.gradientDisk
-                        .map((c) => c.withValues(alpha: 0.18))
-                        .toList(),
+                    colors:
+                        ZColors.gradientDisk
+                            .map((c) => c.withValues(alpha: 0.18))
+                            .toList(),
                   ),
                   border: Border.all(color: ZColors.border),
                 ),
@@ -319,9 +332,10 @@ class _IoChip extends StatelessWidget {
                 duration: const Duration(milliseconds: 600),
                 curve: Curves.easeOutCubic,
                 builder: (context, v, _) {
-                  final text = v >= 1
-                      ? '${v.toStringAsFixed(1)} MB/s'
-                      : '${(v * 1024).toStringAsFixed(0)} KB/s';
+                  final text =
+                      v >= 1
+                          ? '${v.toStringAsFixed(1)} MB/s'
+                          : '${(v * 1024).toStringAsFixed(0)} KB/s';
                   return Text(
                     text,
                     style: ZText.caption.copyWith(

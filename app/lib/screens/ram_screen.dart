@@ -7,7 +7,7 @@ import '../core/theme/zcolors.dart';
 import '../widgets/animated_metric.dart';
 import '../widgets/circular_progress_arc.dart';
 import '../widgets/glass_card.dart';
-import '../widgets/ram_chart.dart';
+import '../widgets/metric_chart.dart';
 import '../widgets/screen_shell.dart';
 
 class RamScreen extends StatelessWidget {
@@ -122,7 +122,19 @@ class RamScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 20),
-            RAMChart(history: service.history),
+            MetricChart(
+              title: 'Memory Usage',
+              history: service.history,
+              accentGradient: ZColors.gradientRam,
+              series: [
+                ChartSeries(
+                  label: 'RAM',
+                  gradient: ZColors.gradientRam,
+                  liveExtractor: (m) => m.memory.percent,
+                  historyKey: 'ram_percent',
+                ),
+              ],
+            ),
           ],
         );
       },
