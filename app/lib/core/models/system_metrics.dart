@@ -1,4 +1,7 @@
+const int kZabminProtocolVersion = 1;
+
 class SystemMetrics {
+  final int version;
   final int timestamp;
   final CPUStats cpu;
   final MemoryStats memory;
@@ -8,6 +11,7 @@ class SystemMetrics {
   final List<GPUStats> gpu;
 
   SystemMetrics({
+    required this.version,
     required this.timestamp,
     required this.cpu,
     required this.memory,
@@ -19,6 +23,7 @@ class SystemMetrics {
 
   factory SystemMetrics.fromJson(Map<String, dynamic> json) {
     return SystemMetrics(
+      version: json['version'] as int? ?? 0,
       timestamp: json['timestamp'] as int? ?? 0,
       cpu: CPUStats.fromJson(json['cpu'] as Map<String, dynamic>? ?? {}),
       memory: MemoryStats.fromJson(

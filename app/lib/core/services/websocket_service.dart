@@ -83,6 +83,11 @@ class WebSocketService extends ChangeNotifier {
             }
 
             final metrics = SystemMetrics.fromJson(parsed);
+            assert(
+              metrics.version == kZabminProtocolVersion,
+              'Zabmin protocol version mismatch: agent sent v${metrics.version}, '
+              'app expects v$kZabminProtocolVersion. Update the agent or app to match.',
+            );
             _latest = metrics;
             _history.add(metrics);
             if (_history.length > 60) {

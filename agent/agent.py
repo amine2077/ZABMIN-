@@ -69,6 +69,7 @@ async def gather_metrics():
         asyncio.to_thread(_run_with_com(collect_gpu)),
     )
     return {
+        "version": 1,
         "timestamp": int(time.time()),
         "cpu": cpu,
         "memory": mem,

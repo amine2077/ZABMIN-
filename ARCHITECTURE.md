@@ -86,6 +86,7 @@ psutil.cpu_percent(interval=1) [thread]
 **Server → Client (broadcast, every 1 second):**
 ```json
 {
+  "version": 1,
   "timestamp": 1718000000,
   "cpu": { "percent_total": 23.4, "percent_per_core": [...], "freq_mhz": 3200, "core_count": 4, "thread_count": 8 },
   "memory": { "total_gb": 16.0, "used_gb": 8.4, "percent": 52.3 },
