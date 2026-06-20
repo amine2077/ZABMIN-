@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/system_metrics.dart';
+import 'settings_service.dart';
 
 class Alert {
   final String id;
@@ -19,6 +20,10 @@ class Alert {
 }
 
 class AlertsService extends ChangeNotifier {
+  final SettingsService? _settings;
+
+  AlertsService({SettingsService? settings}) : _settings = settings;
+
   final List<Alert> _alerts = [];
   bool _panelVisible = false;
 
@@ -28,7 +33,7 @@ class AlertsService extends ChangeNotifier {
   DateTime? _lastDiskAlertTime;
   DateTime? _lastNetAlertTime;
 
-  // CPU high counter (needs 30 consecutive seconds)
+  // CPU high counter (needs N consecutive seconds)
   int _cpuHighConsecutiveCount = 0;
 
   List<Alert> get alerts => List.unmodifiable(_alerts);
@@ -58,13 +63,15 @@ class AlertsService extends ChangeNotifier {
   }
 
   void _checkCpuHigh(CPUStats cpu, DateTime now) {
-    if (cpu.percentTotal > 85) {
+    final threshold = _settings?.cpuThreshold ?? 85.0;
+    final consecutiveTarget = _settings?.cpuConsecutiveSeconds ?? 30;
+    if (cpu.percentTotal > threshold) {
       _cpuHighConsecutiveCount++;
-      if (_cpuHighConsecutiveCount >= 30) {
+      if (_cpuHighConsecutiveCount >= consecutiveTarget) {
         if (_lastCpuAlertTime == null) {
           _addAlert(
             message:
-                'CPU usage is critically high (${cpu.percentTotal.toStringAsFixed(1)}%) for 30+ seconds',
+                'CPU usage is critically high (${cpu.percentTotal.toStringAsFixed(1)}%) for $consecutiveTarget+ seconds',
             severity: 'critical',
           );
           _lastCpuAlertTime = now;
@@ -77,7 +84,8 @@ class AlertsService extends ChangeNotifier {
   }
 
   void _checkRamHigh(MemoryStats memory, DateTime now) {
-    if (memory.percent > 90) {
+    final threshold = _settings?.ramThreshold ?? 90.0;
+    if (memory.percent > threshold) {
       if (_lastRamAlertTime == null ||
           now.difference(_lastRamAlertTime!).inSeconds >= 60) {
         _addAlert(
@@ -90,7 +98,8 @@ class AlertsService extends ChangeNotifier {
   }
 
   void _checkDiskFull(DiskStats disk, DateTime now) {
-    if (disk.percent > 95) {
+    final threshold = _settings?.diskThreshold ?? 95.0;
+    if (disk.percent > threshold) {
       if (_lastDiskAlertTime == null ||
           now.difference(_lastDiskAlertTime!).inSeconds >= 60) {
         _addAlert(
@@ -104,7 +113,8 @@ class AlertsService extends ChangeNotifier {
   }
 
   void _checkNetSpike(NetworkStats network, DateTime now) {
-    if (network.recvMbS > 10) {
+    final threshold = _settings?.netThresholdMbS ?? 10.0;
+    if (network.recvMbS > threshold) {
       if (_lastNetAlertTime == null ||
           now.difference(_lastNetAlertTime!).inSeconds >= 60) {
         _addAlert(

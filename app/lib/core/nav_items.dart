@@ -16,4 +16,5 @@ const List<NavItem> kNavItems = <NavItem>[
   NavItem('Disk', Icons.storage_rounded, ZColors.gradientDisk),
   NavItem('RAM', Icons.view_in_ar_rounded, ZColors.gradientRam),
   NavItem('GPU', Icons.videogame_asset_rounded, ZColors.gradientGpu),
+  NavItem('Settings', Icons.settings_rounded, ZColors.gradientAccent),
 ];

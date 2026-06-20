@@ -18,6 +18,7 @@ import 'network_screen.dart';
 import 'disk_screen.dart';
 import 'ram_screen.dart';
 import 'gpu_screen.dart';
+import 'settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -102,6 +103,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return const RamScreen();
       case 'GPU':
         return const GpuScreen();
+      case 'Settings':
+        return const SettingsScreen();
       default:
         return const _DashboardHome();
     }

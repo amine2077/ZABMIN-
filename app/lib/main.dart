@@ -11,6 +11,7 @@ import 'package:window_manager/window_manager.dart';
 import 'core/services/websocket_service.dart';
 import 'core/services/alerts_service.dart';
 import 'core/services/history_service.dart';
+import 'core/services/settings_service.dart';
 import 'core/theme/zcolors.dart';
 import 'screens/dashboard_screen.dart';
 import 'widgets/export_dialog.dart';
@@ -64,6 +65,9 @@ void main() async {
   final historyService = HistoryService();
   await historyService.init();
 
+  final settingsService = SettingsService();
+  await settingsService.load();
+
   await windowManager.ensureInitialized();
 
   WindowOptions windowOptions = WindowOptions(
@@ -81,21 +85,31 @@ void main() async {
 
   await _startAgent();
 
-  runApp(ZabminApp(historyService: historyService));
+  runApp(
+    ZabminApp(historyService: historyService, settingsService: settingsService),
+  );
 }
 
 class ZabminApp extends StatelessWidget {
   final HistoryService historyService;
+  final SettingsService settingsService;
 
-  const ZabminApp({super.key, required this.historyService});
+  const ZabminApp({
+    super.key,
+    required this.historyService,
+    required this.settingsService,
+  });
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => WebSocketService()),
-        ChangeNotifierProvider(create: (_) => AlertsService()),
+        ChangeNotifierProvider(
+          create: (_) => AlertsService(settings: settingsService),
+        ),
         ChangeNotifierProvider<HistoryService>.value(value: historyService),
+        ChangeNotifierProvider<SettingsService>.value(value: settingsService),
       ],
       child: MaterialApp(
         title: 'Zabmin',
