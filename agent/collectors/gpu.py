@@ -27,7 +27,14 @@ except Exception as e:
 
 
 def _dxgi_dedicated_vram():
-    """Return a list of (name_lower, dedicated_mb) via DXGI for each adapter."""
+    """Return a list of (name_lower, dedicated_mb) via DXGI for each adapter.
+
+    Kept despite fragile hand-rolled COM vtable walking because WMI's
+    Win32_VideoController.AdapterRAM is a 32-bit DWORD and truncates to
+    ~4095 MB on GPUs with >4 GB VRAM. DXGI returns the correct dedicated
+    VRAM for AMD and Intel GPUs that NVML doesn't cover. A failure here
+    falls through to the WMI value silently.
+    """
     global _dxgi_cache, _dxgi_ts
     now = time.monotonic()
     if _dxgi_cache is not None and (now - _dxgi_ts) < _WMI_STATIC_TTL:
@@ -195,6 +202,14 @@ def _name_matches(name_a, name_b):
 
 def collect():
     """Collect GPU metrics. NVML for NVIDIA + WMI for Intel/AMD (combined, no short-circuit)."""
+    try:
+        return _collect_inner()
+    except Exception as e:
+        logger.warning(f"GPU collect failed unexpectedly: {e}")
+        return []
+
+
+def _collect_inner():
     gpus = []
     seen_names = []
 
