@@ -1,8 +1,15 @@
+import time
 import logging
 import ctypes
 from ctypes import wintypes
 
 logger = logging.getLogger(__name__)
+
+_WMI_STATIC_TTL = 30.0
+_wmi_static_cache = None
+_wmi_static_ts = 0.0
+_dxgi_cache = None
+_dxgi_ts = 0.0
 
 _nvml_initialized = False
 _nvml_count = 0
@@ -21,6 +28,10 @@ except Exception as e:
 
 def _dxgi_dedicated_vram():
     """Return a list of (name_lower, dedicated_mb) via DXGI for each adapter."""
+    global _dxgi_cache, _dxgi_ts
+    now = time.monotonic()
+    if _dxgi_cache is not None and (now - _dxgi_ts) < _WMI_STATIC_TTL:
+        return list(_dxgi_cache)
     try:
         dxgi = ctypes.windll.dxgi
         factory_iid = bytes.fromhex("a86f7518c0f4d84cb291c629e7437d20")
@@ -102,6 +113,8 @@ def _dxgi_dedicated_vram():
                 results.append((name.lower(), vram_mb))
             i += 1
 
+        _dxgi_cache = list(results)
+        _dxgi_ts = now
         return results
     except Exception as e:
         logger.debug(f"DXGI query failed: {e}")
@@ -109,6 +122,10 @@ def _dxgi_dedicated_vram():
 
 
 def _get_wmi_gpu_static():
+    global _wmi_static_cache, _wmi_static_ts
+    now = time.monotonic()
+    if _wmi_static_cache is not None and (now - _wmi_static_ts) < _WMI_STATIC_TTL:
+        return [dict(g) for g in _wmi_static_cache]
     try:
         import wmi
 
@@ -128,6 +145,8 @@ def _get_wmi_gpu_static():
                     "driver_version": gpu.DriverVersion or "",
                 }
             )
+        _wmi_static_cache = [dict(g) for g in gpus]
+        _wmi_static_ts = now
         return gpus
     except Exception as e:
         logger.warning(f"WMI GPU query failed: {e}")
