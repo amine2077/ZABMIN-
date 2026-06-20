@@ -160,7 +160,7 @@ async def handler(websocket):
                 elif msg_type == "get_history":
                     minutes = msg.get("duration_minutes", 60)
                     request_id = msg.get("request_id")
-                    rows = database.get_history(minutes)
+                    rows = await asyncio.to_thread(database.get_history, minutes)
                     await websocket.send(
                         json.dumps(
                             {
@@ -197,7 +197,7 @@ async def broadcast_loop():
                 )
             db_counter += 1
             if db_counter >= 5:
-                database.insert_metrics(metrics)
+                await asyncio.to_thread(database.insert_metrics, metrics)
                 db_counter = 0
         except Exception as e:
             logger.error(f"Error collecting metrics: {e}")
