@@ -63,7 +63,8 @@ class AlertsService extends ChangeNotifier {
       if (_cpuHighConsecutiveCount >= 30) {
         if (_lastCpuAlertTime == null) {
           _addAlert(
-            message: 'CPU usage is critically high (${cpu.percentTotal.toStringAsFixed(1)}%) for 30+ seconds',
+            message:
+                'CPU usage is critically high (${cpu.percentTotal.toStringAsFixed(1)}%) for 30+ seconds',
             severity: 'critical',
           );
           _lastCpuAlertTime = now;
@@ -77,7 +78,8 @@ class AlertsService extends ChangeNotifier {
 
   void _checkRamHigh(MemoryStats memory, DateTime now) {
     if (memory.percent > 90) {
-      if (_lastRamAlertTime == null || now.difference(_lastRamAlertTime!).inSeconds >= 60) {
+      if (_lastRamAlertTime == null ||
+          now.difference(_lastRamAlertTime!).inSeconds >= 60) {
         _addAlert(
           message: 'RAM usage is high at ${memory.percent.toStringAsFixed(1)}%',
           severity: 'warning',
@@ -89,9 +91,11 @@ class AlertsService extends ChangeNotifier {
 
   void _checkDiskFull(DiskStats disk, DateTime now) {
     if (disk.percent > 95) {
-      if (_lastDiskAlertTime == null || now.difference(_lastDiskAlertTime!).inSeconds >= 60) {
+      if (_lastDiskAlertTime == null ||
+          now.difference(_lastDiskAlertTime!).inSeconds >= 60) {
         _addAlert(
-          message: 'Disk space is critically low (${disk.percent.toStringAsFixed(1)}% used)',
+          message:
+              'Disk space is critically low (${disk.percent.toStringAsFixed(1)}% used)',
           severity: 'critical',
         );
         _lastDiskAlertTime = now;
@@ -101,9 +105,11 @@ class AlertsService extends ChangeNotifier {
 
   void _checkNetSpike(NetworkStats network, DateTime now) {
     if (network.recvMbS > 10) {
-      if (_lastNetAlertTime == null || now.difference(_lastNetAlertTime!).inSeconds >= 60) {
+      if (_lastNetAlertTime == null ||
+          now.difference(_lastNetAlertTime!).inSeconds >= 60) {
         _addAlert(
-          message: 'Network download spike detected (${network.recvMbS.toStringAsFixed(1)} MB/s)',
+          message:
+              'Network download spike detected (${network.recvMbS.toStringAsFixed(1)} MB/s)',
           severity: 'info',
         );
         _lastNetAlertTime = now;

@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../core/services/websocket_service.dart';
+import '../core/theme/app_theme.dart';
+import '../core/theme/zcolors.dart';
+import '../widgets/animated_metric.dart';
+import '../widgets/glass_card.dart';
 import '../widgets/network_chart.dart';
+import '../widgets/screen_shell.dart';
 
 class NetworkScreen extends StatelessWidget {
   const NetworkScreen({super.key});
@@ -14,112 +18,238 @@ class NetworkScreen extends StatelessWidget {
       builder: (context, service, _) {
         final metrics = service.latest;
         if (metrics == null) {
-          return const Center(child: CircularProgressIndicator(color: Color(0xFF58A6FF)));
+          return const Center(
+            child: CircularProgressIndicator(color: ZColors.accent),
+          );
         }
 
         final net = metrics.network;
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Network', style: GoogleFonts.inter(fontSize: 22, color: Colors.white, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 4),
-              Text('Real-time network activity', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF8B949E))),
-              const SizedBox(height: 20),
-              Row(
+        return ScreenShell(
+          title: 'Network',
+          subtitle: 'Real-time throughput on active adapters',
+          accentGradient: ZColors.gradientNet,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _ThroughputCard(
+                    label: 'Download',
+                    mbPerSec: net.recvMbS,
+                    icon: Icons.arrow_downward_rounded,
+                    gradient: ZColors.gradientNet,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _ThroughputCard(
+                    label: 'Upload',
+                    mbPerSec: net.sentMbS,
+                    icon: Icons.arrow_upward_rounded,
+                    gradient: ZColors.gradientGpu,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: DetailStatCard(
+                    label: 'Total Downloaded',
+                    value: '${net.totalRecvGb.toStringAsFixed(1)} GB',
+                    icon: Icons.cloud_download_rounded,
+                    gradient: ZColors.gradientNet,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: DetailStatCard(
+                    label: 'Total Uploaded',
+                    value: '${net.totalSentGb.toStringAsFixed(1)} GB',
+                    icon: Icons.cloud_upload_rounded,
+                    gradient: ZColors.gradientGpu,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            NetworkChart(history: service.history),
+            const SizedBox(height: 20),
+            GlassCard(
+              hoverable: false,
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: _statCard('Download', '${net.recvMbS.toStringAsFixed(2)} MB/s', const Color(0xFF58A6FF), Icons.download_outlined)),
-                  const SizedBox(width: 16),
-                  Expanded(child: _statCard('Upload', '${net.sentMbS.toStringAsFixed(2)} MB/s', const Color(0xFF3FB950), Icons.upload_outlined)),
+                  Row(
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 18,
+                        decoration: BoxDecoration(
+                          borderRadius: ZRadii.pill,
+                          gradient: LinearGradient(
+                            colors: ZColors.gradientAccent,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text('Speed Summary', style: ZText.title),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  _SpeedBar(
+                    label: 'Download',
+                    current: net.recvMbS,
+                    gradient: ZColors.gradientNet,
+                  ),
+                  const SizedBox(height: 14),
+                  _SpeedBar(
+                    label: 'Upload',
+                    current: net.sentMbS,
+                    gradient: ZColors.gradientGpu,
+                  ),
                 ],
               ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(child: _statCard('Total Downloaded', '${net.totalRecvGb.toStringAsFixed(1)} GB', const Color(0xFF8B949E), Icons.data_usage_outlined)),
-                  const SizedBox(width: 16),
-                  Expanded(child: _statCard('Total Uploaded', '${net.totalSentGb.toStringAsFixed(1)} GB', const Color(0xFF8B949E), Icons.data_usage_outlined)),
-                ],
-              ),
-              const SizedBox(height: 20),
-              NetworkChart(history: service.history),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF161B22),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF30363D)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Speed Summary', style: GoogleFonts.inter(fontSize: 15, color: Colors.white, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 12),
-                    _speedBar('Download', net.recvMbS, 100, const Color(0xFF58A6FF)),
-                    const SizedBox(height: 12),
-                    _speedBar('Upload', net.sentMbS, 100, const Color(0xFF3FB950)),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );
   }
+}
 
-  Widget _statCard(String label, String value, Color color, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF161B22),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF30363D)),
-      ),
-      child: Row(
+class _ThroughputCard extends StatelessWidget {
+  final String label;
+  final double mbPerSec;
+  final IconData icon;
+  final List<Color> gradient;
+
+  const _ThroughputCard({
+    required this.label,
+    required this.mbPerSec,
+    required this.icon,
+    required this.gradient,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      padding: const EdgeInsets.all(20),
+      glowColor: gradient.last,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-            child: Icon(icon, color: color, size: 22),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  borderRadius: ZRadii.inner,
+                  gradient: LinearGradient(
+                    colors: gradient
+                        .map((c) => c.withValues(alpha: 0.18))
+                        .toList(),
+                  ),
+                  border: Border.all(color: ZColors.border),
+                ),
+                child: Icon(icon, color: gradient.first, size: 18),
+              ),
+              const SizedBox(width: 10),
+              Text(label.toUpperCase(), style: ZText.micro),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF8B949E))),
-                const SizedBox(height: 4),
-                Text(value, style: GoogleFonts.inter(fontSize: 18, color: Colors.white, fontWeight: FontWeight.w700)),
-              ],
-            ),
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              AnimatedMetric(value: mbPerSec, decimals: 2, style: ZText.metric),
+              const SizedBox(width: 6),
+              Text('MB/s', style: ZText.caption),
+            ],
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _speedBar(String label, double current, double max, Color color) {
+class _SpeedBar extends StatelessWidget {
+  final String label;
+  final double current;
+  final List<Color> gradient;
+
+  const _SpeedBar({
+    required this.label,
+    required this.current,
+    required this.gradient,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const max = 100.0;
     final pct = (current / max).clamp(0.0, 1.0);
     return Row(
       children: [
-        SizedBox(width: 80, child: Text(label, style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF8B949E)))),
-        Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: pct,
-              minHeight: 8,
-              backgroundColor: const Color(0xFF21262D),
-              valueColor: AlwaysStoppedAnimation<Color>(color),
-            ),
+        SizedBox(
+          width: 86,
+          child: Text(
+            label,
+            style: ZText.body.copyWith(color: ZColors.textSecondary),
           ),
         ),
-        const SizedBox(width: 12),
-        SizedBox(width: 80, child: Text('${current.toStringAsFixed(2)} MB/s', textAlign: TextAlign.right, style: GoogleFonts.inter(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w600))),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (ctx, c) {
+              return Container(
+                height: 6,
+                decoration: BoxDecoration(
+                  color: ZColors.border.withValues(alpha: 0.4),
+                  borderRadius: ZRadii.pill,
+                ),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: pct, end: pct),
+                  duration: const Duration(milliseconds: 600),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, v, _) {
+                    return FractionallySizedBox(
+                      widthFactor: v.clamp(0.0, 1.0),
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: ZRadii.pill,
+                          gradient: LinearGradient(colors: gradient),
+                          boxShadow: ZShadows.hairlineGlow(gradient.last),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(width: 14),
+        SizedBox(
+          width: 92,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: current, end: current),
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.easeOutCubic,
+            builder: (context, v, _) {
+              return Text(
+                '${v.toStringAsFixed(2)} MB/s',
+                textAlign: TextAlign.right,
+                style: ZText.mono(
+                  size: 12,
+                  weight: FontWeight.w600,
+                ).copyWith(color: gradient.first),
+              );
+            },
+          ),
+        ),
       ],
     );
   }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
+import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
 
 class TimeRangeSelector extends StatelessWidget {
@@ -15,15 +15,23 @@ class TimeRangeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _button('1m', 1),
-        const SizedBox(width: 6),
-        _button('15m', 15),
-        const SizedBox(width: 6),
-        _button('1h', 60),
-      ],
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: ZColors.backgroundDeep.withValues(alpha: 0.7),
+        borderRadius: ZRadii.pill,
+        border: Border.all(color: ZColors.hairline),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _button('1m', 1),
+          const SizedBox(width: 2),
+          _button('15m', 15),
+          const SizedBox(width: 2),
+          _button('1h', 60),
+        ],
+      ),
     );
   }
 
@@ -33,23 +41,29 @@ class TimeRangeSelector extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: () => onChanged(minutes),
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          height: 28,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+        borderRadius: ZRadii.pill,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          height: 26,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            border: Border.all(
-              color: isSelected ? ZColors.accent : ZColors.border,
-            ),
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: ZRadii.pill,
+            gradient: isSelected
+                ? LinearGradient(colors: ZColors.gradientAccent)
+                : null,
+            color: isSelected ? null : Colors.transparent,
+            boxShadow: isSelected
+                ? ZShadows.hairlineGlow(ZColors.accent)
+                : null,
           ),
           alignment: Alignment.center,
           child: Text(
             label,
-            style: GoogleFonts.inter(
-              fontSize: 12,
-              color: isSelected ? ZColors.accent : ZColors.textSecondary,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            style: ZText.caption.copyWith(
+              fontSize: 11,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              color: isSelected ? Colors.white : ZColors.textSecondary,
             ),
           ),
         ),

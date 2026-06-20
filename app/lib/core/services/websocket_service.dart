@@ -128,10 +128,10 @@ class WebSocketService extends ChangeNotifier {
     });
   }
 
-  Future<Map<String, dynamic>> waitForKillResult() {
-    if (_pendingKillByPid.isNotEmpty) {
-      final entry = _pendingKillByPid.entries.first;
-      return entry.value.future;
+  Future<Map<String, dynamic>> waitForKillResult(int pid) {
+    final completer = _pendingKillByPid[pid];
+    if (completer != null) {
+      return completer.future;
     }
     return Future.value({'success': false, 'error': 'No pending kill'});
   }

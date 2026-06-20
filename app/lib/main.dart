@@ -4,12 +4,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'core/services/websocket_service.dart';
 import 'core/services/alerts_service.dart';
+import 'core/services/history_service.dart';
 import 'core/theme/zcolors.dart';
 import 'screens/dashboard_screen.dart';
+import 'widgets/export_dialog.dart';
 
 Future<void> _startAgent() async {
   try {
@@ -52,11 +55,19 @@ Future<void> _startAgent() async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
+
+  final historyService = HistoryService();
+  await historyService.init();
+
   await windowManager.ensureInitialized();
 
   WindowOptions windowOptions = WindowOptions(
     size: Size(1280, 800),
-    minimumSize: Size(900, 600),
+    minimumSize: Size(720, 520),
     titleBarStyle: TitleBarStyle.hidden,
     backgroundColor: Color(0xFF0D1117),
     title: 'Zabmin',
@@ -69,11 +80,13 @@ void main() async {
 
   await _startAgent();
 
-  runApp(const ZabminApp());
+  runApp(ZabminApp(historyService: historyService));
 }
 
 class ZabminApp extends StatelessWidget {
-  const ZabminApp({super.key});
+  final HistoryService historyService;
+
+  const ZabminApp({super.key, required this.historyService});
 
   @override
   Widget build(BuildContext context) {
@@ -81,6 +94,7 @@ class ZabminApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => WebSocketService()),
         ChangeNotifierProvider(create: (_) => AlertsService()),
+        ChangeNotifierProvider<HistoryService>.value(value: historyService),
       ],
       child: MaterialApp(
         title: 'Zabmin',
@@ -121,10 +135,12 @@ class _AppShellState extends State<AppShell> with WindowListener {
   void _initAlerts() {
     final ws = context.read<WebSocketService>();
     final alerts = context.read<AlertsService>();
+    final history = context.read<HistoryService>();
     ws.metricsNotifier.addListener(() {
       final m = ws.metricsNotifier.value;
       if (m != null) {
         alerts.onMetrics(m);
+        history.record(m);
       }
     });
   }
@@ -282,29 +298,65 @@ class _AppShellState extends State<AppShell> with WindowListener {
         }
       },
       child: Container(
-        height: 36,
-        color: ZColors.background,
+        height: 40,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              ZColors.surfaceElevated.withValues(alpha: 0.95),
+              ZColors.surface.withValues(alpha: 0.95),
+            ],
+          ),
+          border: const Border(bottom: BorderSide(color: ZColors.hairline)),
+        ),
         child: Row(
           children: [
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
+            Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                gradient: const LinearGradient(colors: ZColors.gradientAccent),
+                boxShadow: ZShadows.hairlineGlow(ZColors.accent),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.bolt_rounded,
+                size: 11,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 8),
             Text(
-              'Zabmin',
+              'ZABMIN',
               style: GoogleFonts.inter(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+                fontSize: 11,
+                letterSpacing: 2.0,
+                fontWeight: FontWeight.w800,
                 color: ZColors.textSecondary,
               ),
             ),
             const Spacer(),
+            _TitleBarButton(
+              icon: Icons.download_rounded,
+              tooltip: 'Export report',
+              onTap: () {
+                showDialog(
+                  context: context,
+                  builder: (_) => const ExportDialog(),
+                );
+              },
+            ),
             _WindowButton(
-              icon: Icons.remove,
+              icon: Icons.remove_rounded,
               onPressed: () => windowManager.minimize(),
             ),
             _WindowButton(
-              icon:
-                  _isMaximized
-                      ? Icons.filter_none_rounded
-                      : Icons.crop_square_rounded,
+              icon: _isMaximized
+                  ? Icons.filter_none_rounded
+                  : Icons.crop_square_rounded,
               onPressed: () async {
                 if (_isMaximized) {
                   await windowManager.unmaximize();
@@ -314,7 +366,7 @@ class _AppShellState extends State<AppShell> with WindowListener {
               },
             ),
             _WindowButton(
-              icon: Icons.close,
+              icon: Icons.close_rounded,
               isClose: true,
               onPressed: () => windowManager.close(),
             ),
@@ -345,12 +397,12 @@ class _WindowButtonState extends State<_WindowButton> {
 
   @override
   Widget build(BuildContext context) {
-    final bgColor =
-        _hovering
-            ? (widget.isClose ? ZColors.red : ZColors.surface)
-            : Colors.transparent;
-    final iconColor =
-        _hovering && widget.isClose ? Colors.white : ZColors.textSecondary;
+    final bgColor = _hovering
+        ? (widget.isClose ? ZColors.red : ZColors.surface)
+        : Colors.transparent;
+    final iconColor = _hovering && widget.isClose
+        ? Colors.white
+        : ZColors.textSecondary;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
@@ -362,6 +414,49 @@ class _WindowButtonState extends State<_WindowButton> {
           height: 36,
           color: bgColor,
           child: Icon(widget.icon, size: 18, color: iconColor),
+        ),
+      ),
+    );
+  }
+}
+
+class _TitleBarButton extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _TitleBarButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  State<_TitleBarButton> createState() => _TitleBarButtonState();
+}
+
+class _TitleBarButtonState extends State<_TitleBarButton> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovering = true),
+        onExit: (_) => setState(() => _hovering = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            width: 46,
+            height: 36,
+            color: _hovering ? ZColors.surface : Colors.transparent,
+            child: Icon(
+              widget.icon,
+              size: 18,
+              color: _hovering ? ZColors.accent : ZColors.textSecondary,
+            ),
+          ),
         ),
       ),
     );
