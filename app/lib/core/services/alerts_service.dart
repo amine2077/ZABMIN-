@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:local_notifier/local_notifier.dart';
 
 import '../models/system_metrics.dart';
 import 'settings_service.dart';
@@ -136,6 +137,12 @@ class AlertsService extends ChangeNotifier {
     );
     _alerts.insert(0, alert);
     notifyListeners();
+
+    if (severity == 'critical' && (_settings?.toastNotifications ?? true)) {
+      try {
+        LocalNotification(title: 'Zabmin Alert', body: message).show();
+      } catch (_) {}
+    }
   }
 
   void clearAll() {

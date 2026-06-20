@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:launch_at_startup/launch_at_startup.dart';
+import 'package:local_notifier/local_notifier.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
@@ -99,6 +100,11 @@ void main() async {
     MenuItem.separator(),
     MenuItem(label: 'Exit', key: 'exit'),
   ]);
+
+  await localNotifier.setup(
+    appName: 'Zabmin',
+    shortcutPolicy: ShortcutPolicy.requireCreate,
+  );
 
   runApp(
     ZabminApp(historyService: historyService, settingsService: settingsService),
