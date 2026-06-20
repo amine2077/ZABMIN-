@@ -19,6 +19,8 @@ dependencies:
   file_picker: ^8.1.4
   shared_preferences: ^2.3.0
   launch_at_startup: ^0.5.0
+  tray_manager: ^0.5.0
+  local_notifier: ^0.1.6
 
 dev_dependencies:
   flutter_test:
@@ -27,3 +29,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/

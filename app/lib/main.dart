@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:launch_at_startup/launch_at_startup.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'core/services/websocket_service.dart';
@@ -91,6 +92,14 @@ void main() async {
 
   await _startAgent();
 
+  await trayManager.setIcon('assets/tray_icon.png');
+  await trayManager.setToolTip('Zabmin');
+  await trayManager.setContextMenu([
+    MenuItem(label: 'Show Zabmin', key: 'show'),
+    MenuItem.separator(),
+    MenuItem(label: 'Exit', key: 'exit'),
+  ]);
+
   runApp(
     ZabminApp(historyService: historyService, settingsService: settingsService),
   );
@@ -143,14 +152,29 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> with WindowListener {
+class _AppShellState extends State<AppShell> with WindowListener, TrayListener {
   bool _isMaximized = false;
+  bool _forceClose = false;
 
   @override
   void initState() {
     super.initState();
     windowManager.addListener(this);
+    trayManager.addListener(this);
     _initAlerts();
+    _initTrayTooltip();
+  }
+
+  void _initTrayTooltip() {
+    final ws = context.read<WebSocketService>();
+    ws.metricsNotifier.addListener(() {
+      final m = ws.metricsNotifier.value;
+      if (m != null) {
+        final cpu = m.cpu.percentTotal.toStringAsFixed(0);
+        final ram = m.memory.percent.toStringAsFixed(0);
+        trayManager.setToolTip('Zabmin — CPU: $cpu% | RAM: $ram%');
+      }
+    });
   }
 
   void _initAlerts() {
@@ -168,14 +192,41 @@ class _AppShellState extends State<AppShell> with WindowListener {
 
   @override
   void dispose() {
+    trayManager.removeListener(this);
+    trayManager.destroy();
     windowManager.removeListener(this);
     super.dispose();
   }
 
   @override
   void onWindowClose() async {
+    if (!_forceClose) {
+      final settings = context.read<SettingsService>();
+      if (settings.minimizeToTray) {
+        await windowManager.hide();
+        return;
+      }
+    }
     await _killAgent();
+    trayManager.destroy();
     windowManager.destroy();
+  }
+
+  @override
+  void onTrayIconMouseDown() {
+    windowManager.show();
+    windowManager.focus();
+  }
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) {
+    if (menuItem.key == 'show') {
+      windowManager.show();
+      windowManager.focus();
+    } else if (menuItem.key == 'exit') {
+      _forceClose = true;
+      windowManager.close();
+    }
   }
 
   Future<void> _killAgent() async {
