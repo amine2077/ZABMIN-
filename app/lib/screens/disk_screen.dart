@@ -9,9 +9,24 @@ import '../widgets/animated_metric.dart';
 import '../widgets/metric_chart.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/screen_shell.dart';
+import '../widgets/search_field.dart';
 
-class DiskScreen extends StatelessWidget {
+class DiskScreen extends StatefulWidget {
   const DiskScreen({super.key});
+
+  @override
+  State<DiskScreen> createState() => _DiskScreenState();
+}
+
+class _DiskScreenState extends State<DiskScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchText = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,18 +41,28 @@ class DiskScreen extends StatelessWidget {
 
         final disk = metrics.disk;
         final freeGb = disk.totalGb - disk.usedGb;
-        final partitions = disk.partitions;
+        final allPartitions = disk.partitions;
+
+        final filteredPartitions = _searchText.isEmpty
+            ? allPartitions
+            : allPartitions.where((p) {
+                final q = _searchText.toLowerCase();
+                return p.label.toLowerCase().contains(q) ||
+                    p.mountpoint.toLowerCase().contains(q) ||
+                    p.device.toLowerCase().contains(q);
+              }).toList();
 
         final grouped = <String, List<DiskPartition>>{};
-        for (final p in partitions) {
-          final key = p.physicalDrive.isNotEmpty ? p.physicalDrive : 'volume';
+        for (final p in filteredPartitions) {
+          final key =
+              p.physicalDrive.isNotEmpty ? p.physicalDrive : 'volume';
           grouped.putIfAbsent(key, () => []).add(p);
         }
 
         return ScreenShell(
           title: 'Storage',
           subtitle:
-              '${grouped.length} disk${grouped.length == 1 ? '' : 's'} · ${partitions.length} partition${partitions.length == 1 ? '' : 's'} · ${disk.totalGb.toStringAsFixed(0)} GB total',
+              '${grouped.length} disk${grouped.length == 1 ? '' : 's'} · ${allPartitions.length} partition${allPartitions.length == 1 ? '' : 's'} · ${disk.totalGb.toStringAsFixed(0)} GB total',
           accentGradient: ZColors.gradientDisk,
           children: [
             Row(
@@ -70,29 +95,47 @@ class DiskScreen extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-            ...grouped.entries.expand((entry) {
-              final parts = entry.value;
-              final driveRead = parts.fold<double>(0, (s, p) => s + p.readMbS);
-              final driveWrite = parts.fold<double>(
-                0,
-                (s, p) => s + p.writeMbS,
-              );
-              return [
-                _DiskGroupCard(
-                  title:
-                      parts.first.physicalDrive.isNotEmpty
-                          ? parts.first.physicalDrive
-                          : 'Volume',
-                  subtitle:
-                      parts.first.label.isNotEmpty ? parts.first.label : 'Disk',
-                  readMbS: driveRead,
-                  writeMbS: driveWrite,
-                  partitions: parts,
+            const SizedBox(height: 20),
+            SearchField(
+              controller: _searchController,
+              onChanged: (value) => setState(() => _searchText = value),
+              resultCount: filteredPartitions.length,
+              totalCount: allPartitions.length,
+              hintText: 'Search partitions...',
+            ),
+            if (_searchText.isNotEmpty && filteredPartitions.isEmpty) ...[
+              const SizedBox(height: 24),
+              Center(
+                child: Text(
+                  'No partitions match "$_searchText"',
+                  style: ZText.body.copyWith(color: ZColors.textSecondary),
                 ),
-                const SizedBox(height: 16),
-              ];
-            }),
+              ),
+            ],
+            if (filteredPartitions.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              ...grouped.entries.expand((entry) {
+                final parts = entry.value;
+                final driveRead =
+                    parts.fold<double>(0, (s, p) => s + p.readMbS);
+                final driveWrite =
+                    parts.fold<double>(0, (s, p) => s + p.writeMbS);
+                return [
+                  _DiskGroupCard(
+                    title: parts.first.physicalDrive.isNotEmpty
+                        ? parts.first.physicalDrive
+                        : 'Volume',
+                    subtitle: parts.first.label.isNotEmpty
+                        ? parts.first.label
+                        : 'Disk',
+                    readMbS: driveRead,
+                    writeMbS: driveWrite,
+                    partitions: parts,
+                  ),
+                  const SizedBox(height: 16),
+                ];
+              }),
+            ],
             const SizedBox(height: 8),
             MetricChart(
               title: 'Disk Usage',
@@ -156,8 +199,7 @@ class _SummaryStat extends StatelessWidget {
             textBaseline: TextBaseline.alphabetic,
             children: [
               AnimatedMetric(
-                value:
-                    double.tryParse(
+                value: double.tryParse(
                       value.replaceAll(RegExp(r'[^0-9.\-]'), ''),
                     ) ??
                     0.0,
@@ -236,10 +278,9 @@ class _DiskGroupCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: ZRadii.inner,
                   gradient: LinearGradient(
-                    colors:
-                        ZColors.gradientDisk
-                            .map((c) => c.withValues(alpha: 0.18))
-                            .toList(),
+                    colors: ZColors.gradientDisk
+                        .map((c) => c.withValues(alpha: 0.18))
+                        .toList(),
                   ),
                   border: Border.all(color: ZColors.border),
                 ),
@@ -332,10 +373,9 @@ class _IoChip extends StatelessWidget {
                 duration: const Duration(milliseconds: 600),
                 curve: Curves.easeOutCubic,
                 builder: (context, v, _) {
-                  final text =
-                      v >= 1
-                          ? '${v.toStringAsFixed(1)} MB/s'
-                          : '${(v * 1024).toStringAsFixed(0)} KB/s';
+                  final text = v >= 1
+                      ? '${v.toStringAsFixed(1)} MB/s'
+                      : '${(v * 1024).toStringAsFixed(0)} KB/s';
                   return Text(
                     text,
                     style: ZText.caption.copyWith(
@@ -411,9 +451,8 @@ class _PartitionRow extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: color.withValues(alpha: 0.15),
                           borderRadius: ZRadii.pill,
-                          border: Border.all(
-                            color: color.withValues(alpha: 0.3),
-                          ),
+                          border:
+                              Border.all(color: color.withValues(alpha: 0.3)),
                         ),
                         child: Text(
                           '${p.percent.toStringAsFixed(1)}%',
@@ -455,9 +494,8 @@ class _PartitionRow extends StatelessWidget {
                     child: Container(
                       decoration: BoxDecoration(
                         borderRadius: ZRadii.pill,
-                        gradient: LinearGradient(
-                          colors: ZColors.usageGradient(p.percent),
-                        ),
+                        gradient:
+                            LinearGradient(colors: ZColors.usageGradient(p.percent)),
                         boxShadow: ZShadows.hairlineGlow(color),
                       ),
                     ),

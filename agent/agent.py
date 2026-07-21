@@ -3,6 +3,7 @@ import json
 import os
 import time
 import logging
+import logging.handlers
 import threading
 import psutil
 import websockets
@@ -15,13 +16,45 @@ from collectors.disk import collect as collect_disk
 from collectors.network import collect as collect_network
 from collectors.processes import collect as collect_processes
 from collectors.gpu import collect as collect_gpu
+from collectors.battery import collect as collect_battery
+
+AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PID_FILE = os.path.join(AGENT_DIR, "agent.pid")
+STATUS_FILE = os.path.join(AGENT_DIR, "agent_status.json")
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent.pid")
+_logs_dir = os.path.join(AGENT_DIR, "logs")
+os.makedirs(_logs_dir, exist_ok=True)
+_file_handler = logging.handlers.RotatingFileHandler(
+    os.path.join(_logs_dir, "agent.log"), maxBytes=5 * 1024 * 1024, backupCount=3
+)
+_file_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(message)s"
+))
+logging.getLogger().addHandler(_file_handler)
+
+
+def _write_status(ok: bool, reason: str = ""):
+    try:
+        payload = {"ok": ok}
+        if reason:
+            payload["reason"] = reason
+        with open(STATUS_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+    except Exception as e:
+        logger.warning(f"Failed to write status file: {e}")
+
+
+def _clear_status():
+    try:
+        if os.path.exists(STATUS_FILE):
+            os.remove(STATUS_FILE)
+    except OSError:
+        pass
 
 connected_clients = set()
 _shutdown_event = asyncio.Event()
@@ -61,16 +94,17 @@ def _run_with_com(fn):
 
 async def gather_metrics():
     """Collect all metrics in parallel threads to avoid blocking the event loop."""
-    cpu, mem, disk, net, procs, gpu = await asyncio.gather(
+    cpu, mem, disk, net, procs, gpu, battery = await asyncio.gather(
         asyncio.to_thread(_run_with_com(collect_cpu)),
         asyncio.to_thread(_run_with_com(collect_memory)),
         asyncio.to_thread(_run_with_com(collect_disk)),
         asyncio.to_thread(_run_with_com(collect_network)),
         asyncio.to_thread(_run_with_com(collect_processes)),
         asyncio.to_thread(_run_with_com(collect_gpu)),
+        asyncio.to_thread(collect_battery),
     )
-    return {
-        "version": 1,
+    payload = {
+        "version": 3,
         "timestamp": int(time.time()),
         "cpu": cpu,
         "memory": mem,
@@ -79,6 +113,9 @@ async def gather_metrics():
         "processes": procs,
         "gpu": gpu,
     }
+    if battery is not None:
+        payload["battery"] = battery
+    return payload
 
 
 async def handler(websocket):
@@ -159,6 +196,67 @@ async def handler(websocket):
                             )
                         )
 
+                elif msg_type == "set_priority":
+                    pid = msg.get("pid")
+                    priority = msg.get("priority")
+                    request_id = msg.get("request_id")
+                    try:
+                        p = psutil.Process(pid)
+                        p.nice(priority)
+                        current = p.nice()
+                        await websocket.send(
+                            json.dumps(
+                                {
+                                    "type": "priority_result",
+                                    "pid": pid,
+                                    "request_id": request_id,
+                                    "success": True,
+                                    "priority": current,
+                                }
+                            )
+                        )
+                    except (psutil.NoSuchProcess, psutil.AccessDenied,
+                            ValueError) as e:
+                        await websocket.send(
+                            json.dumps(
+                                {
+                                    "type": "priority_result",
+                                    "pid": pid,
+                                    "request_id": request_id,
+                                    "success": False,
+                                    "error": str(e),
+                                }
+                            )
+                        )
+
+                elif msg_type == "get_priority":
+                    pid = msg.get("pid")
+                    request_id = msg.get("request_id")
+                    try:
+                        current = psutil.Process(pid).nice()
+                        await websocket.send(
+                            json.dumps(
+                                {
+                                    "type": "priority_info",
+                                    "pid": pid,
+                                    "request_id": request_id,
+                                    "priority": current,
+                                }
+                            )
+                        )
+                    except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                        await websocket.send(
+                            json.dumps(
+                                {
+                                    "type": "priority_info",
+                                    "pid": pid,
+                                    "request_id": request_id,
+                                    "priority": None,
+                                    "error": str(e),
+                                }
+                            )
+                        )
+
                 elif msg_type == "get_history":
                     minutes = msg.get("duration_minutes", 60)
                     request_id = msg.get("request_id")
@@ -227,22 +325,25 @@ async def main():
         except OSError as e:
             errno = getattr(e, "winerror", None) or getattr(e, "errno", None)
             if errno == 10048:
-                logger.error(
-                    "Port 8765 is already in use. Another agent may be running."
-                )
+                reason = "Port 8765 is already in use. Another agent may be running."
+                logger.error(reason)
             else:
-                logger.error(f"Failed to bind to port 8765: {e}")
+                reason = f"Failed to bind to port 8765: {e}"
+                logger.error(reason)
+            _write_status(False, reason)
             return
         except Exception as e:
             err_str = str(e).lower()
             if "10048" in err_str or "socket address" in err_str:
-                logger.error(
-                    "Port 8765 is already in use. Another agent may be running."
-                )
+                reason = "Port 8765 is already in use. Another agent may be running."
+                logger.error(reason)
             else:
-                logger.error(f"Failed to start server: {e}")
+                reason = f"Failed to start server: {e}"
+                logger.error(reason)
+            _write_status(False, reason)
             return
 
+        _write_status(True)
         logger.info("Server started")
         try:
             broadcast_task = asyncio.create_task(broadcast_loop())
@@ -254,6 +355,7 @@ async def main():
             await server.wait_closed()
             logger.info("Server closed")
     finally:
+        _clear_status()
         try:
             os.remove(PID_FILE)
         except OSError:
@@ -261,4 +363,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.exception("Fatal agent error")
+        _write_status(False, str(e))

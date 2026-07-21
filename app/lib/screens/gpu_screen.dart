@@ -10,9 +10,24 @@ import '../widgets/circular_progress_arc.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/metric_chart.dart';
 import '../widgets/screen_shell.dart';
+import '../widgets/search_field.dart';
 
-class GpuScreen extends StatelessWidget {
+class GpuScreen extends StatefulWidget {
   const GpuScreen({super.key});
+
+  @override
+  State<GpuScreen> createState() => _GpuScreenState();
+}
+
+class _GpuScreenState extends State<GpuScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchText = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,9 +40,9 @@ class GpuScreen extends StatelessWidget {
           );
         }
 
-        final gpus = metrics.gpu;
+        final allGpus = metrics.gpu;
 
-        if (gpus.isEmpty) {
+        if (allGpus.isEmpty) {
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -37,10 +52,9 @@ class GpuScreen extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: LinearGradient(
-                      colors:
-                          ZColors.gradientGpu
-                              .map((c) => c.withValues(alpha: 0.15))
-                              .toList(),
+                      colors: ZColors.gradientGpu
+                          .map((c) => c.withValues(alpha: 0.15))
+                          .toList(),
                     ),
                   ),
                   child: const Icon(
@@ -61,19 +75,47 @@ class GpuScreen extends StatelessWidget {
           );
         }
 
+        final filteredGpus = _searchText.isEmpty
+            ? allGpus
+            : allGpus.where((g) {
+                final q = _searchText.toLowerCase();
+                return g.name.toLowerCase().contains(q);
+              }).toList();
+
         return ScreenShell(
           title: 'Graphics',
-          subtitle: '${gpus.length} GPU${gpus.length == 1 ? '' : 's'} detected',
+          subtitle:
+              '${allGpus.length} GPU${allGpus.length == 1 ? '' : 's'} detected',
           accentGradient: ZColors.gradientGpu,
           children: [
-            ...gpus.asMap().entries.expand((entry) {
-              final gpu = entry.value;
-              return [
-                _GpuCard(gpu: gpu),
-                if (entry.key < gpus.length - 1) const SizedBox(height: 20),
-              ];
-            }),
-            if (gpus.any(
+            SearchField(
+              controller: _searchController,
+              onChanged: (value) => setState(() => _searchText = value),
+              resultCount: filteredGpus.length,
+              totalCount: allGpus.length,
+              hintText: 'Search GPUs...',
+            ),
+            if (_searchText.isNotEmpty && filteredGpus.isEmpty) ...[
+              const SizedBox(height: 24),
+              Center(
+                child: Text(
+                  'No GPUs match "$_searchText"',
+                  style: ZText.body.copyWith(color: ZColors.textSecondary),
+                ),
+              ),
+            ],
+            if (filteredGpus.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              ...filteredGpus.asMap().entries.expand((entry) {
+                final gpu = entry.value;
+                return [
+                  _GpuCard(gpu: gpu),
+                  if (entry.key < filteredGpus.length - 1)
+                    const SizedBox(height: 20),
+                ];
+              }),
+            ],
+            if (filteredGpus.any(
               (g) => g.utilizationPercent > 0 || g.temperatureC > 0,
             )) ...[
               const SizedBox(height: 20),
@@ -86,18 +128,15 @@ class GpuScreen extends StatelessWidget {
                   ChartSeries(
                     label: 'Utilization',
                     gradient: ZColors.gradientGpu,
-                    liveExtractor:
-                        (m) =>
-                            m.gpu.isNotEmpty
-                                ? m.gpu.first.utilizationPercent
-                                : 0.0,
+                    liveExtractor: (m) =>
+                        m.gpu.isNotEmpty ? m.gpu.first.utilizationPercent : 0.0,
                     historyKey: 'gpu_percent',
                   ),
                   ChartSeries(
                     label: 'VRAM',
                     gradient: ZColors.gradientRam,
-                    liveExtractor:
-                        (m) => m.gpu.isNotEmpty ? m.gpu.first.vramPercent : 0.0,
+                    liveExtractor: (m) =>
+                        m.gpu.isNotEmpty ? m.gpu.first.vramPercent : 0.0,
                     historyKey: 'gpu_vram_percent',
                     barWidth: 2,
                   ),
@@ -133,10 +172,9 @@ class _GpuCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: ZRadii.inner,
                   gradient: LinearGradient(
-                    colors:
-                        ZColors.gradientGpu
-                            .map((c) => c.withValues(alpha: 0.18))
-                            .toList(),
+                    colors: ZColors.gradientGpu
+                        .map((c) => c.withValues(alpha: 0.18))
+                        .toList(),
                   ),
                   border: Border.all(color: ZColors.border),
                 ),
@@ -153,7 +191,8 @@ class _GpuCard extends StatelessWidget {
                   children: [
                     Text(gpu.name, style: ZText.title),
                     if (gpu.driverVersion.isNotEmpty)
-                      Text('Driver ${gpu.driverVersion}', style: ZText.caption),
+                      Text('Driver ${gpu.driverVersion}',
+                          style: ZText.caption),
                   ],
                 ),
               ),
@@ -186,10 +225,9 @@ class _GpuCard extends StatelessWidget {
                 Expanded(
                   child: _GpuStat(
                     label: gpu.vramUsedMb > 0 ? 'VRAM Used' : 'VRAM',
-                    value:
-                        gpu.vramUsedMb > 0
-                            ? '${gpu.vramUsedMb.toStringAsFixed(0)} MB'
-                            : 'Shared',
+                    value: gpu.vramUsedMb > 0
+                        ? '${gpu.vramUsedMb.toStringAsFixed(0)} MB'
+                        : 'Shared',
                     color: ZColors.usageColor(gpu.vramPercent),
                   ),
                 ),
@@ -206,10 +244,9 @@ class _GpuCard extends StatelessWidget {
               Expanded(
                 child: _GpuStat(
                   label: 'Utilization',
-                  value:
-                      gpu.utilizationPercent > 0
-                          ? '${gpu.utilizationPercent.toStringAsFixed(1)}%'
-                          : 'N/A',
+                  value: gpu.utilizationPercent > 0
+                      ? '${gpu.utilizationPercent.toStringAsFixed(1)}%'
+                      : 'N/A',
                   color: utilColor,
                 ),
               ),
@@ -351,7 +388,8 @@ class _BarSection extends StatelessWidget {
                 borderRadius: ZRadii.pill,
               ),
               child: TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: percent / 100, end: percent / 100),
+                tween:
+                    Tween<double>(begin: percent / 100, end: percent / 100),
                 duration: const Duration(milliseconds: 700),
                 curve: Curves.easeOutCubic,
                 builder: (context, v, _) {

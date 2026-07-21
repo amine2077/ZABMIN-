@@ -1,4 +1,4 @@
-const int kZabminProtocolVersion = 1;
+const int kZabminProtocolVersion = 3;
 
 class SystemMetrics {
   final int version;
@@ -9,6 +9,7 @@ class SystemMetrics {
   final NetworkStats network;
   final List<ProcessInfo> processes;
   final List<GPUStats> gpu;
+  final BatteryStats? battery;
 
   SystemMetrics({
     required this.version,
@@ -19,6 +20,7 @@ class SystemMetrics {
     required this.network,
     required this.processes,
     required this.gpu,
+    this.battery,
   });
 
   factory SystemMetrics.fromJson(Map<String, dynamic> json) {
@@ -43,6 +45,31 @@ class SystemMetrics {
               ?.map((g) => GPUStats.fromJson(g as Map<String, dynamic>))
               .toList() ??
           [],
+      battery: json['battery'] != null
+          ? BatteryStats.fromJson(
+              json['battery'] as Map<String, dynamic>,
+            )
+          : null,
+    );
+  }
+}
+
+class BatteryStats {
+  final double percent;
+  final bool powerPlugged;
+  final int? secsLeft;
+
+  BatteryStats({
+    required this.percent,
+    required this.powerPlugged,
+    this.secsLeft,
+  });
+
+  factory BatteryStats.fromJson(Map<String, dynamic> json) {
+    return BatteryStats(
+      percent: (json['percent'] as num?)?.toDouble() ?? 0.0,
+      powerPlugged: json['power_plugged'] as bool? ?? false,
+      secsLeft: json['secs_left'] as int?,
     );
   }
 }
@@ -53,6 +80,8 @@ class CPUStats {
   final int freqMhz;
   final int coreCount;
   final int threadCount;
+  final double? temperatureC;
+  final bool throttled;
 
   CPUStats({
     required this.percentTotal,
@@ -60,6 +89,8 @@ class CPUStats {
     required this.freqMhz,
     required this.coreCount,
     required this.threadCount,
+    this.temperatureC,
+    this.throttled = false,
   });
 
   factory CPUStats.fromJson(Map<String, dynamic> json) {
@@ -73,6 +104,8 @@ class CPUStats {
       freqMhz: json['freq_mhz'] as int? ?? 0,
       coreCount: json['core_count'] as int? ?? 0,
       threadCount: json['thread_count'] as int? ?? 0,
+      temperatureC: (json['temperature_c'] as num?)?.toDouble(),
+      throttled: json['throttled'] as bool? ?? false,
     );
   }
 }
@@ -244,6 +277,7 @@ class GPUStats {
 
 class ProcessInfo {
   final int pid;
+  final int ppid;
   final String name;
   final double cpuPercent;
   final double memoryMb;
@@ -252,6 +286,7 @@ class ProcessInfo {
 
   ProcessInfo({
     required this.pid,
+    this.ppid = 0,
     required this.name,
     required this.cpuPercent,
     required this.memoryMb,
@@ -262,6 +297,7 @@ class ProcessInfo {
   factory ProcessInfo.fromJson(Map<String, dynamic> json) {
     return ProcessInfo(
       pid: json['pid'] as int? ?? 0,
+      ppid: json['ppid'] as int? ?? 0,
       name: json['name'] as String? ?? '',
       cpuPercent: (json['cpu_percent'] as num?)?.toDouble() ?? 0.0,
       memoryMb: (json['memory_mb'] as num?)?.toDouble() ?? 0.0,

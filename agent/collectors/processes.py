@@ -15,7 +15,7 @@ def collect():
     try:
         procs = []
         for p in psutil.process_iter(
-            ["pid", "name", "cpu_percent", "memory_info", "status"]
+            ["pid", "ppid", "name", "cpu_percent", "memory_info", "status"]
         ):
             try:
                 info = p.info
@@ -38,6 +38,7 @@ def collect():
 
                 procs.append({
                     "pid": info["pid"] or 0,
+                    "ppid": info["ppid"] or 0,
                     "name": info["name"],
                     "cpu_percent": cpu_percent,
                     "memory_mb": mem_mb,

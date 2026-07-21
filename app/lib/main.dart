@@ -95,11 +95,11 @@ void main() async {
 
   await trayManager.setIcon('assets/tray_icon.png');
   await trayManager.setToolTip('Zabmin');
-  await trayManager.setContextMenu([
+  await trayManager.setContextMenu(Menu(items: [
     MenuItem(label: 'Show Zabmin', key: 'show'),
     MenuItem.separator(),
     MenuItem(label: 'Exit', key: 'exit'),
-  ]);
+  ]));
 
   await localNotifier.setup(
     appName: 'Zabmin',
@@ -338,6 +338,58 @@ class _AppShellState extends State<AppShell> with WindowListener, TrayListener {
                 final hasData = ws.latest != null;
 
                 if (status != 'connected' || !hasData) {
+                  final error = ws.agentError;
+                  if (error != null) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: ZColors.red.withValues(alpha: 0.15),
+                              ),
+                              child: Icon(
+                                Icons.warning_rounded,
+                                size: 28,
+                                color: ZColors.red,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            Text(
+                              'Agent failed to start',
+                              style: GoogleFonts.inter(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w700,
+                                color: ZColors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              error,
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                color: ZColors.textSecondary,
+                                height: 1.5,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            FilledButton.icon(
+                              onPressed: () => ws.retryConnection(),
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
                   return Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,

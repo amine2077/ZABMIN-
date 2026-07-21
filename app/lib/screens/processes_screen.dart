@@ -10,6 +10,22 @@ import '../core/models/system_metrics.dart';
 import '../widgets/animated_metric.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/screen_shell.dart';
+import '../widgets/search_field.dart';
+
+const Map<int, String> _priorityLabels = {
+  64: 'IDLE',
+  16384: 'BELOW NORMAL',
+  32: 'NORMAL',
+  32768: 'ABOVE NORMAL',
+  128: 'HIGH',
+};
+const Map<int, IconData> _priorityIcons = {
+  64: Icons.ac_unit_rounded,
+  16384: Icons.arrow_downward_rounded,
+  32: Icons.remove_rounded,
+  32768: Icons.arrow_upward_rounded,
+  128: Icons.flash_on_rounded,
+};
 
 class ProcessesScreen extends StatefulWidget {
   const ProcessesScreen({super.key});
@@ -23,6 +39,38 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
   final TextEditingController _searchController = TextEditingController();
   ProcessInfo? _selectedProcess;
   bool _panelVisible = false;
+  bool _treeMode = false;
+
+  final Map<int, int> _treeDepth = {};
+
+  List<ProcessInfo> _buildTreeList(List<ProcessInfo> flat) {
+    _treeDepth.clear();
+    final pidMap = <int, ProcessInfo>{};
+    final children = <int, List<ProcessInfo>>{};
+    for (final p in flat) {
+      pidMap[p.pid] = p;
+      children.putIfAbsent(p.ppid, () => []).add(p);
+    }
+    final roots = flat
+        .where((p) => p.ppid == 0 || !pidMap.containsKey(p.ppid))
+        .toList();
+    roots.sort((a, b) => b.cpuPercent.compareTo(a.cpuPercent));
+
+    final result = <ProcessInfo>[];
+    void walk(List<ProcessInfo> nodes, int depth) {
+      for (final node in nodes) {
+        _treeDepth[node.pid] = depth;
+        result.add(node);
+        final kids = children[node.pid];
+        if (kids != null) {
+          kids.sort((a, b) => b.cpuPercent.compareTo(a.cpuPercent));
+          walk(kids, depth + 1);
+        }
+      }
+    }
+    walk(roots, 0);
+    return result;
+  }
 
   @override
   void dispose() {
@@ -57,7 +105,7 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
         final allProcesses = List<ProcessInfo>.from(metrics.processes)
           ..sort((a, b) => b.cpuPercent.compareTo(a.cpuPercent));
 
-        final filtered =
+        final filteredBase =
             _searchText.isEmpty
                 ? allProcesses
                 : allProcesses
@@ -67,6 +115,8 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
                       ),
                     )
                     .toList();
+
+        final filtered = _treeMode ? _buildTreeList(filteredBase) : filteredBase;
 
         return Stack(
           children: [
@@ -126,11 +176,12 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
           ],
         ),
         const SizedBox(height: 20),
-        _PremiumSearchField(
+        SearchField(
           controller: _searchController,
           onChanged: (value) => setState(() => _searchText = value),
           resultCount: filtered.length,
           totalCount: all.length,
+          hintText: 'Search processes...',
         ),
         const SizedBox(height: 12),
         GlassCard(
@@ -176,6 +227,53 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
                         ),
                       ),
                     ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => setState(() => _treeMode = !_treeMode),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _treeMode
+                              ? ZColors.gradientCpu.first
+                                  .withValues(alpha: 0.15)
+                              : ZColors.border.withValues(alpha: 0.3),
+                          borderRadius: ZRadii.pill,
+                          border: Border.all(
+                            color: _treeMode
+                                ? ZColors.gradientCpu.first
+                                    .withValues(alpha: 0.3)
+                                : ZColors.hairline,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _treeMode
+                                  ? Icons.account_tree_rounded
+                                  : Icons.list_rounded,
+                              size: 14,
+                              color: _treeMode
+                                  ? ZColors.gradientCpu.first
+                                  : ZColors.textSecondary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _treeMode ? 'Tree' : 'Flat',
+                              style: ZText.caption.copyWith(
+                                color: _treeMode
+                                    ? ZColors.gradientCpu.first
+                                    : ZColors.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -185,11 +283,15 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
                 child: ListView.builder(
                   itemCount: filtered.length,
                   itemBuilder: (context, index) {
+                    final proc = filtered[index];
+                    final depth = _treeMode ? _treeDepth[proc.pid] ?? 0 : 0;
                     return _ProcessRow(
-                      proc: filtered[index],
+                      proc: proc,
                       index: index,
-                      onTap: () => _openPanel(filtered[index]),
-                      onKill: () => _confirmKill(context, filtered[index]),
+                      treeDepth: depth,
+                      showTreeIndent: _treeMode,
+                      onTap: () => _openPanel(proc),
+                      onKill: () => _confirmKill(context, proc),
                     );
                   },
                 ),
@@ -406,102 +508,23 @@ class _SummaryStatString extends StatelessWidget {
   }
 }
 
-class _PremiumSearchField extends StatelessWidget {
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
-  final int resultCount;
-  final int totalCount;
 
-  const _PremiumSearchField({
-    required this.controller,
-    required this.onChanged,
-    required this.resultCount,
-    required this.totalCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassCard(
-      hoverable: false,
-      padding: EdgeInsets.zero,
-      child: Container(
-        height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: Row(
-          children: [
-            const Icon(
-              Icons.search_rounded,
-              size: 18,
-              color: ZColors.textSecondary,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: TextField(
-                controller: controller,
-                onChanged: onChanged,
-                style: ZText.body,
-                decoration: InputDecoration(
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                  hintText: 'Search processes...',
-                  hintStyle: ZText.body.copyWith(color: ZColors.textTertiary),
-                ),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: ZColors.accent.withValues(alpha: 0.1),
-                borderRadius: ZRadii.pill,
-              ),
-              child: Text(
-                '$resultCount / $totalCount',
-                style: ZText.micro.copyWith(
-                  color: ZColors.accent,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            if (controller.text.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () {
-                    controller.clear();
-                    onChanged('');
-                  },
-                  borderRadius: ZRadii.inner,
-                  child: const Padding(
-                    padding: EdgeInsets.all(6),
-                    child: Icon(
-                      Icons.close_rounded,
-                      size: 16,
-                      color: ZColors.textSecondary,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _ProcessRow extends StatefulWidget {
   final ProcessInfo proc;
   final int index;
   final VoidCallback onTap;
   final VoidCallback onKill;
+  final int treeDepth;
+  final bool showTreeIndent;
 
   const _ProcessRow({
     required this.proc,
     required this.index,
     required this.onTap,
     required this.onKill,
+    this.treeDepth = 0,
+    this.showTreeIndent = false,
   });
 
   @override
@@ -546,6 +569,20 @@ class _ProcessRowState extends State<_ProcessRow> {
                   flex: 4,
                   child: Row(
                     children: [
+                      if (widget.showTreeIndent)
+                        ...List.generate(
+                          widget.treeDepth.clamp(0, 20),
+                          (_) => const SizedBox(width: 20),
+                        ),
+                      if (widget.showTreeIndent && widget.treeDepth > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Icon(
+                            Icons.subdirectory_arrow_right_rounded,
+                            size: 14,
+                            color: ZColors.textTertiary,
+                          ),
+                        ),
                       Container(
                         width: 26,
                         height: 26,
@@ -761,6 +798,10 @@ class _ProcessRowState extends State<_ProcessRow> {
   }
 }
 
+const List<int> _priorityValues = [64, 16384, 32, 32768, 128];
+
+String _niceToLabel(int nice) => _priorityLabels[nice] ?? 'UNKNOWN ($nice)';
+
 class _ConnectionPanel extends StatefulWidget {
   final ProcessInfo process;
   final bool visible;
@@ -779,11 +820,14 @@ class _ConnectionPanel extends StatefulWidget {
 class _ConnectionPanelState extends State<_ConnectionPanel> {
   List<Map<String, dynamic>>? _connections;
   bool _loading = true;
+  int? _currentPriority;
+  bool _priorityLoading = true;
 
   @override
   void initState() {
     super.initState();
     _fetchConnections();
+    _fetchPriority();
   }
 
   @override
@@ -791,6 +835,7 @@ class _ConnectionPanelState extends State<_ConnectionPanel> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.process.pid != widget.process.pid) {
       _fetchConnections();
+      _fetchPriority();
     }
   }
 
@@ -807,6 +852,56 @@ class _ConnectionPanelState extends State<_ConnectionPanel> {
         _loading = false;
       });
     }
+  }
+
+  void _fetchPriority() async {
+    setState(() => _priorityLoading = true);
+    final ws = context.read<WebSocketService>();
+    final result = await ws.fetchPriority(widget.process.pid);
+    if (mounted) {
+      setState(() {
+        _currentPriority = result['priority'] as int?;
+        _priorityLoading = false;
+      });
+    }
+  }
+
+  void _changePriority(int priority) async {
+    final ws = context.read<WebSocketService>();
+    ws.setPriority(widget.process.pid, priority);
+    final result = await ws.waitForPriorityResult(widget.process.pid);
+    if (!mounted) return;
+    final success = result['success'] == true;
+    if (success) {
+      setState(() => _currentPriority = result['priority'] as int?);
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              success ? Icons.check_circle : Icons.error,
+              size: 18,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                success
+                    ? 'Priority set to ${_niceToLabel(result['priority'] as int)}'
+                    : 'Failed: ${result['error'] ?? 'unknown error'}',
+              ),
+            ),
+          ],
+        ),
+        backgroundColor:
+            success
+                ? ZColors.green.withValues(alpha: 0.95)
+                : ZColors.red.withValues(alpha: 0.95),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: ZRadii.inner),
+      ),
+    );
   }
 
   @override
@@ -941,25 +1036,126 @@ class _ConnectionPanelState extends State<_ConnectionPanel> {
   }
 
   Widget _buildStatCards() {
+    final prio = _currentPriority;
+    final prioLabel = prio != null ? _niceToLabel(prio) : '—';
     return Padding(
       padding: const EdgeInsets.all(18),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: _StatBox(
-              label: 'CPU',
-              value: '${widget.process.cpuPercent.toStringAsFixed(1)}%',
-              color: ZColors.accent,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: _StatBox(
+                  label: 'CPU',
+                  value: '${widget.process.cpuPercent.toStringAsFixed(1)}%',
+                  color: ZColors.accent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _StatBox(
+                  label: 'Memory',
+                  value: '${widget.process.memoryMb.toStringAsFixed(1)} MB',
+                  color: ZColors.purple,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _StatBox(
-              label: 'Memory',
-              value: '${widget.process.memoryMb.toStringAsFixed(1)} MB',
-              color: ZColors.purple,
-            ),
+          const SizedBox(height: 14),
+          _buildPrioritySection(prioLabel, prio),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPrioritySection(String prioLabel, int? prio) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ZColors.backgroundDeep.withValues(alpha: 0.6),
+        borderRadius: ZRadii.inner,
+        border: Border.all(color: ZColors.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('PRIORITY', style: ZText.micro),
+              const Spacer(),
+              if (_priorityLoading)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: ZColors.accent,
+                  ),
+                )
+              else
+                Text(
+                  prioLabel,
+                  style: ZText.metricSm.copyWith(
+                    color: ZColors.accent,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+            ],
           ),
+          const SizedBox(height: 10),
+          if (prio != null && !_priorityLoading)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: _priorityValues.map((val) {
+                final selected = prio == val;
+                return GestureDetector(
+                  onTap: selected ? null : () => _changePriority(val),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? ZColors.accent.withValues(alpha: 0.15)
+                          : ZColors.surface.withValues(alpha: 0.5),
+                      borderRadius: ZRadii.pill,
+                      border: Border.all(
+                        color: selected
+                            ? ZColors.accent.withValues(alpha: 0.4)
+                            : ZColors.hairline,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _priorityIcons[val] ?? Icons.remove_rounded,
+                          size: 12,
+                          color: selected
+                              ? ZColors.accent
+                              : ZColors.textSecondary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _priorityLabels[val] ?? 'UNKNOWN',
+                          style: ZText.micro.copyWith(
+                            color: selected
+                                ? ZColors.accent
+                                : ZColors.textSecondary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 9,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
         ],
       ),
     );

@@ -9,6 +9,7 @@ import '../core/services/alerts_service.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
 import '../widgets/app_rail.dart';
+import '../widgets/core_bar_grid.dart';
 import '../widgets/metric_card.dart';
 import '../widgets/metric_grid.dart';
 import '../widgets/metric_chart.dart';
@@ -494,7 +495,25 @@ class _DashboardHome extends StatelessWidget {
                           gradient: ZColors.gradientDisk,
                         ),
                       ],
+                      if (metrics.battery != null) ...[
+                        MetricCard(
+                          label: 'Battery',
+                          value: metrics.battery!.percent.toStringAsFixed(1),
+                          unit: '%',
+                          percent: metrics.battery!.percent,
+                          icon: metrics.battery!.powerPlugged
+                              ? Icons.power_rounded
+                              : Icons.battery_std_rounded,
+                          gradient: ZColors.usageGradient(
+                            metrics.battery!.percent,
+                          ),
+                        ),
+                      ],
                     ],
+                  ),
+                  const SizedBox(height: 24),
+                  CoreBarGrid(
+                    percentPerCore: metrics.cpu.percentPerCore,
                   ),
                   const SizedBox(height: 28),
                   MetricChart(
