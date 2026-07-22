@@ -92,26 +92,53 @@ def _run_with_com(fn):
     return _inner
 
 
+COLLECTOR_TIMEOUT = 10.0
+
+
+
+async def _run_in_thread(fn, label, with_com=False, timeout=COLLECTOR_TIMEOUT):
+    """Run a collector in a thread pool, optionally with COM init.
+
+    Returns the collector result or None if it times out / fails.
+    """
+    wrapped = _run_with_com(fn) if with_com else fn
+    try:
+        t0 = time.monotonic()
+        result = await asyncio.wait_for(
+            asyncio.to_thread(wrapped), timeout=timeout,
+        )
+        logger.debug(f"Collector {label} OK in {time.monotonic()-t0:.1f}s")
+        return result
+    except asyncio.TimeoutError:
+        logger.warning(f"Collector {label} timed out (>{timeout}s)")
+        return None
+    except Exception as e:
+        logger.warning(f"Collector {label} failed: {e}")
+        return None
+
+
 async def gather_metrics():
-    """Collect all metrics in parallel threads to avoid blocking the event loop."""
+    """Collect all metrics in parallel threads. Only cpu+memory need COM init."""
+    cpu_task = _run_in_thread(collect_cpu, "cpu", with_com=True)
+    mem_task = _run_in_thread(collect_memory, "memory", with_com=True)
+    disk_task = _run_in_thread(collect_disk, "disk")
+    net_task = _run_in_thread(collect_network, "network")
+    procs_task = _run_in_thread(collect_processes, "processes")
+    gpu_task = _run_in_thread(collect_gpu, "gpu", with_com=True)
+    battery_task = _run_in_thread(collect_battery, "battery")
+
     cpu, mem, disk, net, procs, gpu, battery = await asyncio.gather(
-        asyncio.to_thread(_run_with_com(collect_cpu)),
-        asyncio.to_thread(_run_with_com(collect_memory)),
-        asyncio.to_thread(_run_with_com(collect_disk)),
-        asyncio.to_thread(_run_with_com(collect_network)),
-        asyncio.to_thread(_run_with_com(collect_processes)),
-        asyncio.to_thread(_run_with_com(collect_gpu)),
-        asyncio.to_thread(collect_battery),
+        cpu_task, mem_task, disk_task, net_task, procs_task, gpu_task, battery_task,
     )
     payload = {
         "version": 3,
         "timestamp": int(time.time()),
-        "cpu": cpu,
-        "memory": mem,
-        "disk": disk,
-        "network": net,
-        "processes": procs,
-        "gpu": gpu,
+        "cpu": cpu or {"percent_total": 0.0, "percent_per_core": [], "freq_mhz": 0, "core_count": 0, "thread_count": 0, "temperature_c": None, "throttled": False},
+        "memory": mem or {"total_gb": 0.0, "used_gb": 0.0, "percent": 0.0, "available_gb": 0.0, "cached_gb": 0.0},
+        "disk": disk or {"total_gb": 0.0, "used_gb": 0.0, "percent": 0.0, "read_mb_s": 0.0, "write_mb_s": 0.0},
+        "network": net or {"sent_mb_s": 0.0, "recv_mb_s": 0.0, "total_sent_gb": 0.0, "total_recv_gb": 0.0},
+        "processes": procs or [],
+        "gpu": gpu or [],
     }
     if battery is not None:
         payload["battery"] = battery
@@ -296,10 +323,13 @@ async def broadcast_loop():
             metrics = await gather_metrics()
             payload = json.dumps(metrics)
             if connected_clients:
-                await asyncio.gather(
+                results = await asyncio.gather(
                     *[client.send(payload) for client in connected_clients],
                     return_exceptions=True,
                 )
+                for r in results:
+                    if isinstance(r, Exception):
+                        logger.warning(f"Send failed: {r}")
             db_counter += 1
             if db_counter >= 5:
                 await asyncio.to_thread(database.insert_metrics, metrics)

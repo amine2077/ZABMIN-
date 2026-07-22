@@ -436,6 +436,16 @@ class _DashboardHome extends StatelessWidget {
                         gradient: ZColors.gradientCpu,
                       ),
                       MetricCard(
+                        label: 'CPU Temp',
+                        value: metrics.cpu.temperatureC != null
+                            ? metrics.cpu.temperatureC!.toStringAsFixed(1)
+                            : '—',
+                        unit: '°C',
+                        percent: (metrics.cpu.temperatureC ?? 0) / 100,
+                        icon: Icons.thermostat_rounded,
+                        gradient: ZColors.gradientCpu,
+                      ),
+                      MetricCard(
                         label: 'Memory',
                         value: metrics.memory.usedGb.toStringAsFixed(1),
                         unit:

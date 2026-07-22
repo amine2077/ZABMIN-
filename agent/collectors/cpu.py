@@ -1,10 +1,19 @@
 import logging
+import time
 
 import psutil
 
 import cpu_state
 
 logger = logging.getLogger(__name__)
+
+_freq_cache = None
+_freq_cache_ts = 0.0
+_FREQ_CACHE_TTL = 30.0
+
+_temp_cache = None
+_temp_cache_ts = 0.0
+_TEMP_CACHE_TTL = 60.0
 
 
 def _cpu_temperature_c() -> float | None:
@@ -34,19 +43,12 @@ def _cpu_temperature_c() -> float | None:
                     temps.append(celsius)
             except (ValueError, AttributeError, TypeError):
                 continue
-        if not temps:
-            return None
-        return round(max(temps), 1)
+        res = round(max(temps), 1) if temps else None
+        del c, zones
+        return res
     except Exception as e:
         logger.debug(f"CPU temperature via WMI failed: {e}")
         return None
-    finally:
-        try:
-            import pythoncom
-
-            pythoncom.CoUninitialize()
-        except Exception:
-            pass
 
 
 def _cpu_throttled(freq) -> bool:
@@ -69,15 +71,33 @@ def collect():
         state = cpu_state.read_state()
         total = state["cpu_total"]
         per_core = state["cpu_per_core"]
-        freq = psutil.cpu_freq()
+
+        t0 = time.monotonic()
+        global _freq_cache, _freq_cache_ts
+        now = time.monotonic()
+        if _freq_cache is None or (now - _freq_cache_ts) > _FREQ_CACHE_TTL:
+            _freq_cache = psutil.cpu_freq()
+            _freq_cache_ts = now
+        freq = _freq_cache
         freq_mhz = round(freq.current) if freq else 0
+        t1 = time.monotonic()
+        if t1 - t0 > 0.5:
+            logger.warning(f"CPU freq took {t1-t0:.2f}s")
+
+        global _temp_cache, _temp_cache_ts
+        now = time.monotonic()
+        if _temp_cache is None or (now - _temp_cache_ts) > _TEMP_CACHE_TTL:
+            _temp_cache = _cpu_temperature_c()
+            _temp_cache_ts = now
+        temp = _temp_cache
+
         return {
             "percent_total": round(total, 1),
             "percent_per_core": [round(v, 1) for v in per_core],
             "freq_mhz": freq_mhz,
             "core_count": psutil.cpu_count(logical=False) or 0,
             "thread_count": psutil.cpu_count(logical=True) or 0,
-            "temperature_c": _cpu_temperature_c(),
+            "temperature_c": temp,
             "throttled": _cpu_throttled(freq),
         }
     except Exception:

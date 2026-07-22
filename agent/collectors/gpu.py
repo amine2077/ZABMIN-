@@ -154,41 +154,20 @@ def _get_wmi_gpu_static():
             )
         _wmi_static_cache = [dict(g) for g in gpus]
         _wmi_static_ts = now
+        del c
         return gpus
     except Exception as e:
-        logger.warning(f"WMI GPU query failed: {e}")
+        logger.debug(f"WMI GPU query failed: {e}")
+        _wmi_static_cache = []
+        _wmi_static_ts = now
         return []
 
 
 def _get_intel_gpu_utilization():
-    """Aggregate 3D engine utilization across GPU adapters via WMI perf counters."""
-    try:
-        import wmi
-
-        perf = wmi.WMI(namespace=r"root\cimv2")
-        totals = {}
-        for item in perf.Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine():
-            name = item.Name or ""
-            if "engtype_3D" not in name:
-                continue
-            try:
-                util = float(item.UtilizationPercentage or 0)
-            except ValueError:
-                util = 0.0
-            luid_start = name.find("luid_")
-            luid_end = name.find("_phys", luid_start)
-            key = (
-                name[luid_start:luid_end]
-                if luid_start >= 0 and luid_end > luid_start
-                else "global"
-            )
-            totals[key] = max(totals.get(key, 0.0), util)
-        if totals:
-            return min(sum(totals.values()), 100.0)
-        return 0.0
-    except Exception as e:
-        logger.debug(f"GPU perf counter failed: {e}")
-        return 0.0
+    """WMI GPUEngine perf counters take 15+ seconds on Windows.
+    Return 0.0 to prevent blocking the GPU collector.
+    """
+    return 0.0
 
 
 def _name_matches(name_a, name_b):
@@ -298,5 +277,16 @@ def _collect_inner():
         for g in gpus:
             if g["utilization_percent"] == 0:
                 g["utilization_percent"] = util
+
+    for g in gpus:
+        if g.get("temperature_c", 0.0) == 0.0:
+            try:
+                from collectors.cpu import _cpu_temperature_c
+
+                pkg_temp = _cpu_temperature_c()
+                if pkg_temp:
+                    g["temperature_c"] = pkg_temp
+            except Exception:
+                pass
 
     return gpus

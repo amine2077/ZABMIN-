@@ -19,10 +19,16 @@ def mock_psutil():
 
 @pytest.fixture(autouse=True)
 def mock_wmi():
-    """Prevent real WMI calls in _get_ram_speed."""
-    with patch("wmi.WMI") as mock:
-        mock.return_value.Win32_PhysicalMemory.return_value = []
-        yield mock
+    """Prevent real WMI calls in _get_ram_speed.
+
+    Uses patch.dict(sys.modules) instead of patch("wmi.WMI") because
+    the real wmi module calls GetObject("winmgmts:") at import time,
+    which fails with COM error when WMI is unavailable.
+    """
+    mock_module = MagicMock()
+    mock_module.WMI.return_value.Win32_PhysicalMemory.return_value = []
+    with patch.dict("sys.modules", {"wmi": mock_module}):
+        yield mock_module.WMI
 
 
 def test_collect_uses_total_minus_available_not_psutil_used():

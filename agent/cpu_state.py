@@ -12,6 +12,7 @@ _ram_percent = 0.0
 _ram_used_gb = 0.0
 _ram_total_gb = 0.0
 _state_lock = threading.Lock()
+_monitor_started = False
 
 PDH = ctypes.windll.pdh
 PDH_HQUERY = ctypes.c_void_p()
@@ -46,7 +47,10 @@ def _read_perf_counter(hcounter):
 
 
 def perf_monitor_loop():
-    global _cpu_percent_total, _cpu_percent_per_core, _ram_percent, _ram_used_gb, _ram_total_gb
+    global _cpu_percent_total, _cpu_percent_per_core, _ram_percent, _ram_used_gb, _ram_total_gb, _monitor_started
+    if _monitor_started:
+        raise RuntimeError("perf_monitor_loop() already running in this process")
+    _monitor_started = True
 
     use_fallback = False
     try:

@@ -64,7 +64,8 @@ def test_collect_with_no_freq(mock_temp, mock_psutil):
     mock_psutil.cpu_freq.return_value = None
     from collectors.cpu import collect
 
-    result = collect()
+    with patch("collectors.cpu._freq_cache", None):
+        result = collect()
     assert result["freq_mhz"] == 0
 
 

@@ -7,7 +7,8 @@ async def t():
     print('version:', d.get('version'))
     print('cpu keys:', list(d.get('cpu',{}).keys()))
     print('has battery:', 'battery' in d)
-    ws.close()
+    await ws.close()
     await ws.wait_closed()
 
-asyncio.run(t())
+if __name__ == "__main__":
+    asyncio.run(t())

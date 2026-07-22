@@ -16,9 +16,15 @@ def mock_pynvml():
 
 @pytest.fixture(autouse=True)
 def mock_wmi():
-    """Mock wmi.WMI() calls (lazily imported inside functions)."""
-    with patch("wmi.WMI") as mock:
-        yield mock
+    """Mock wmi.WMI() calls (lazily imported inside functions).
+
+    Uses patch.dict(sys.modules) instead of patch("wmi.WMI") because
+    the real wmi module calls GetObject("winmgmts:") at import time,
+    which fails with COM error when WMI is unavailable.
+    """
+    mock_module = MagicMock()
+    with patch.dict("sys.modules", {"wmi": mock_module}):
+        yield mock_module.WMI
 
 
 @pytest.fixture(autouse=True)
