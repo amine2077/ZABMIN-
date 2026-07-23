@@ -1,8 +1,7 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/models/system_metrics.dart';
 import '../core/nav_items.dart';
 import '../core/services/websocket_service.dart';
 import '../core/services/alerts_service.dart';
@@ -10,6 +9,7 @@ import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
 import '../widgets/app_rail.dart';
 import '../widgets/core_bar_grid.dart';
+import '../widgets/glass_card.dart';
 import '../widgets/metric_card.dart';
 import '../widgets/metric_grid.dart';
 import '../widgets/metric_chart.dart';
@@ -41,11 +41,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             wide
                 ? _buildSidebar()
                 : AppRail(
-                  selectedNav: _selectedNav,
-                  onNavSelected:
-                      (label) => setState(() => _selectedNav = label),
-                  bottom: const _ConnectionBadge(compact: true),
-                ),
+                    selectedNav: _selectedNav,
+                    onNavSelected: (label) =>
+                        setState(() => _selectedNav = label),
+                    bottom: const _ConnectionBadge(compact: true),
+                  ),
             Expanded(child: _buildContent()),
           ],
         );
@@ -54,40 +54,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildSidebar() {
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-        child: Container(
-          width: 230,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                ZColors.surfaceElevated.withValues(alpha: 0.92),
-                ZColors.surface.withValues(alpha: 0.92),
-              ],
-            ),
-            border: const Border(right: BorderSide(color: ZColors.hairline)),
-          ),
-          child: Column(
-            children: [
-              const _BrandHeader(),
-              const SizedBox(height: 4),
-              ...kNavItems.map((item) {
-                final isSelected = item.label == _selectedNav;
-                return _SidebarTile(
-                  item: item,
-                  isSelected: isSelected,
-                  onTap: () => setState(() => _selectedNav = item.label),
-                );
-              }),
-              const Spacer(),
-              const _ConnectionBadge(compact: false),
-              const SizedBox(height: 18),
-            ],
-          ),
-        ),
+    return Container(
+      width: 210,
+      decoration: const BoxDecoration(
+        color: ZColors.surface,
+        border: Border(right: BorderSide(color: ZColors.border, width: 1)),
+      ),
+      child: Column(
+        children: [
+          const _BrandHeader(),
+          const Divider(color: ZColors.border, height: 1, thickness: 1),
+          const SizedBox(height: 8),
+          ...kNavItems.map((item) {
+            final isSelected = item.label == _selectedNav;
+            return _SidebarTile(
+              item: item,
+              isSelected: isSelected,
+              onTap: () => setState(() => _selectedNav = item.label),
+            );
+          }),
+          const Spacer(),
+          const Divider(color: ZColors.border, height: 1, thickness: 1),
+          const _ConnectionBadge(compact: false),
+          const SizedBox(height: 12),
+        ],
       ),
     );
   }
@@ -107,7 +97,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 'Settings':
         return const SettingsScreen();
       default:
-        return const _DashboardHome();
+        return _DashboardHome(
+          onNavigate: (label) => setState(() => _selectedNav = label),
+        );
     }
   }
 }
@@ -118,34 +110,35 @@ class _BrandHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       child: Row(
         children: [
           Container(
-            width: 34,
-            height: 34,
+            width: 30,
+            height: 30,
             decoration: BoxDecoration(
               borderRadius: ZRadii.inner,
-              gradient: const LinearGradient(colors: ZColors.gradientAccent),
-              boxShadow: ZShadows.hairlineGlow(ZColors.accent),
+              color: ZColors.accent.withValues(alpha: 0.15),
+              border: Border.all(color: ZColors.accent.withValues(alpha: 0.35)),
             ),
             alignment: Alignment.center,
             child: const Icon(
-              Icons.bolt_rounded,
-              size: 18,
-              color: Colors.white,
+              Icons.monitor_heart_rounded,
+              size: 16,
+              color: ZColors.accent,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'ZABMIN',
                 style: ZText.section.copyWith(
-                  letterSpacing: 2.5,
+                  letterSpacing: 2.0,
                   fontWeight: FontWeight.w800,
                   color: ZColors.textPrimary,
+                  fontSize: 13,
                 ),
               ),
               const SizedBox(height: 1),
@@ -175,65 +168,48 @@ class _SidebarTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
           borderRadius: ZRadii.inner,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
+            duration: const Duration(milliseconds: 180),
             curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
             decoration: BoxDecoration(
               borderRadius: ZRadii.inner,
-              gradient:
-                  isSelected
-                      ? LinearGradient(
-                        colors:
-                            item.gradient
-                                .map((c) => c.withValues(alpha: 0.18))
-                                .toList(),
-                      )
-                      : null,
+              color: isSelected
+                  ? item.gradient.first.withValues(alpha: 0.10)
+                  : Colors.transparent,
+              border: isSelected
+                  ? Border.all(
+                      color: item.gradient.first.withValues(alpha: 0.25),
+                    )
+                  : Border.all(color: Colors.transparent),
             ),
             child: Row(
               children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  width: 3,
-                  height: 22,
-                  margin: const EdgeInsets.only(right: 12),
-                  decoration: BoxDecoration(
-                    borderRadius: ZRadii.pill,
-                    gradient:
-                        isSelected
-                            ? LinearGradient(colors: item.gradient)
-                            : null,
-                    color: isSelected ? null : ZColors.hairline,
-                    boxShadow:
-                        isSelected
-                            ? ZShadows.hairlineGlow(item.gradient.last)
-                            : null,
-                  ),
-                ),
                 Icon(
                   item.icon,
-                  size: 18,
-                  color:
-                      isSelected ? item.gradient.first : ZColors.textSecondary,
+                  size: 17,
+                  color: isSelected
+                      ? item.gradient.first
+                      : ZColors.textSecondary,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     item.label,
                     style: ZText.body.copyWith(
-                      fontWeight:
-                          isSelected ? FontWeight.w700 : FontWeight.w500,
-                      color:
-                          isSelected
-                              ? ZColors.textPrimary
-                              : ZColors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: isSelected
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                      color: isSelected
+                          ? ZColors.textPrimary
+                          : ZColors.textSecondary,
                     ),
                   ),
                 ),
@@ -324,7 +300,8 @@ class _ConnectionBadge extends StatelessWidget {
 }
 
 class _DashboardHome extends StatelessWidget {
-  const _DashboardHome();
+  final ValueChanged<String>? onNavigate;
+  const _DashboardHome({this.onNavigate});
 
   @override
   Widget build(BuildContext context) {
@@ -360,7 +337,6 @@ class _DashboardHome extends StatelessWidget {
 
         final gpus = metrics.gpu;
         final gpuUtil = gpus.isNotEmpty ? gpus.first.utilizationPercent : 0.0;
-        final gpuVramPercent = gpus.isNotEmpty ? gpus.first.vramPercent : 0.0;
 
         return Stack(
           children: [
@@ -374,7 +350,7 @@ class _DashboardHome extends StatelessWidget {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      ZColors.accent.withValues(alpha: 0.10),
+                      ZColors.accent.withValues(alpha: 0.08),
                       Colors.transparent,
                     ],
                   ),
@@ -391,7 +367,7 @@ class _DashboardHome extends StatelessWidget {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      ZColors.purple.withValues(alpha: 0.08),
+                      ZColors.purple.withValues(alpha: 0.06),
                       Colors.transparent,
                     ],
                   ),
@@ -399,32 +375,12 @@ class _DashboardHome extends StatelessWidget {
               ),
             ),
             SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('System Overview', style: ZText.display),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Live telemetry from your Windows machine',
-                              style: ZText.body.copyWith(
-                                color: ZColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const _TimestampChip(),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
+                  _buildExecutiveHeader(context, metrics),
+                  const SizedBox(height: 20),
                   MetricGrid(
                     children: [
                       MetricCard(
@@ -436,40 +392,35 @@ class _DashboardHome extends StatelessWidget {
                         gradient: ZColors.gradientCpu,
                       ),
                       MetricCard(
-                        label: 'CPU Temp',
-                        value: metrics.cpu.temperatureC != null
-                            ? metrics.cpu.temperatureC!.toStringAsFixed(1)
-                            : '—',
-                        unit: '°C',
-                        percent: (metrics.cpu.temperatureC ?? 0) / 100,
-                        icon: Icons.thermostat_rounded,
-                        gradient: ZColors.gradientCpu,
-                      ),
-                      MetricCard(
                         label: 'Memory',
                         value: metrics.memory.usedGb.toStringAsFixed(1),
                         unit:
                             '/ ${metrics.memory.totalGb.toStringAsFixed(0)} GB',
                         percent: metrics.memory.percent,
-                        icon: Icons.memory_rounded,
+                        icon: Icons.pie_chart_rounded,
                         gradient: ZColors.gradientRam,
                       ),
                       MetricCard(
-                        label: 'Disk',
-                        value: metrics.disk.usedGb.toStringAsFixed(1),
-                        unit: '/ ${metrics.disk.totalGb.toStringAsFixed(0)} GB',
+                        label: 'Disk I/O',
+                        value: (metrics.disk.readMbS + metrics.disk.writeMbS)
+                            .toStringAsFixed(1),
+                        unit: 'MB/s',
                         percent: metrics.disk.percent,
-                        icon: Icons.storage_rounded,
+                        icon: Icons.dns_rounded,
                         gradient: ZColors.gradientDisk,
                       ),
                       MetricCard(
                         label: 'Network',
-                        value: metrics.network.recvMbS.toStringAsFixed(1),
+                        value:
+                            (metrics.network.recvMbS + metrics.network.sentMbS)
+                                .toStringAsFixed(1),
                         unit: 'MB/s',
-                        percent: (metrics.network.recvMbS +
-                                metrics.network.sentMbS)
-                            .clamp(0, 100),
-                        icon: Icons.wifi_rounded,
+                        percent:
+                            ((metrics.network.recvMbS +
+                                        metrics.network.sentMbS) *
+                                    5)
+                                .clamp(0.0, 100.0),
+                        icon: Icons.sensors_rounded,
                         gradient: ZColors.gradientNet,
                       ),
                       if (gpus.isNotEmpty) ...[
@@ -481,73 +432,196 @@ class _DashboardHome extends StatelessWidget {
                           icon: Icons.videogame_asset_rounded,
                           gradient: ZColors.gradientGpu,
                         ),
-                        MetricCard(
-                          label: 'VRAM',
-                          value: gpus.first.vramUsedMb.toStringAsFixed(0),
-                          unit:
-                              '/ ${gpus.first.vramTotalMb.toStringAsFixed(0)} MB',
-                          percent: gpuVramPercent,
-                          icon: Icons.layers_rounded,
-                          gradient: ZColors.gradientRam,
-                        ),
-                        MetricCard(
-                          label: 'GPU Temp',
-                          value:
-                              gpus.first.temperatureC > 0
-                                  ? gpus.first.temperatureC.toStringAsFixed(0)
-                                  : '—',
-                          unit: gpus.first.temperatureC > 0 ? '°C' : '',
-                          percent:
-                              gpus.first.temperatureC > 0
-                                  ? gpus.first.temperatureC.clamp(0, 100)
-                                  : 0,
-                          icon: Icons.thermostat_rounded,
-                          gradient: ZColors.gradientDisk,
-                        ),
                       ],
-                      if (metrics.battery != null) ...[
-                        MetricCard(
-                          label: 'Battery',
-                          value: metrics.battery!.percent.toStringAsFixed(1),
-                          unit: '%',
-                          percent: metrics.battery!.percent,
-                          icon: metrics.battery!.powerPlugged
-                              ? Icons.power_rounded
-                              : Icons.battery_std_rounded,
-                          gradient: ZColors.usageGradient(
-                            metrics.battery!.percent,
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  LayoutBuilder(
+                    builder: (ctx, constraints) {
+                      final isWide = constraints.maxWidth >= 950;
+                      if (isWide) {
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              flex: 6,
+                              child: Column(
+                                children: [
+                                  MetricChart(
+                                    title: 'CPU & RAM Telemetry History',
+                                    history: wsService.history,
+                                    accentGradient: ZColors.gradientCpu,
+                                    series: [
+                                      ChartSeries(
+                                        label: 'CPU %',
+                                        gradient: ZColors.gradientCpu,
+                                        liveExtractor: (m) =>
+                                            m.cpu.percentTotal,
+                                        historyKey: 'cpu_percent',
+                                      ),
+                                      ChartSeries(
+                                        label: 'RAM %',
+                                        gradient: ZColors.gradientRam,
+                                        liveExtractor: (m) => m.memory.percent,
+                                        historyKey: 'ram_percent',
+                                      ),
+                                    ],
+                                    showTooltip: true,
+                                  ),
+                                  const SizedBox(height: 20),
+                                  CoreBarGrid(
+                                    percentPerCore: metrics.cpu.percentPerCore,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 20),
+                            Expanded(
+                              flex: 5,
+                              child: ProcessTable(
+                                processes: metrics.processes,
+                                limit: 9,
+                                onViewAll: onNavigate != null
+                                    ? () => onNavigate!('Processes')
+                                    : null,
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+                      return Column(
+                        children: [
+                          MetricChart(
+                            title: 'CPU & RAM Telemetry History',
+                            history: wsService.history,
+                            accentGradient: ZColors.gradientCpu,
+                            series: [
+                              ChartSeries(
+                                label: 'CPU %',
+                                gradient: ZColors.gradientCpu,
+                                liveExtractor: (m) => m.cpu.percentTotal,
+                                historyKey: 'cpu_percent',
+                              ),
+                              ChartSeries(
+                                label: 'RAM %',
+                                gradient: ZColors.gradientRam,
+                                liveExtractor: (m) => m.memory.percent,
+                                historyKey: 'ram_percent',
+                              ),
+                            ],
+                            showTooltip: true,
                           ),
-                        ),
-                      ],
-                    ],
+                          const SizedBox(height: 20),
+                          CoreBarGrid(
+                            percentPerCore: metrics.cpu.percentPerCore,
+                          ),
+                          const SizedBox(height: 20),
+                          ProcessTable(
+                            processes: metrics.processes,
+                            limit: 8,
+                            onViewAll: onNavigate != null
+                                ? () => onNavigate!('Processes')
+                                : null,
+                          ),
+                        ],
+                      );
+                    },
                   ),
-                  const SizedBox(height: 24),
-                  CoreBarGrid(
-                    percentPerCore: metrics.cpu.percentPerCore,
-                  ),
-                  const SizedBox(height: 28),
-                  MetricChart(
-                    title: 'CPU Usage',
-                    history: wsService.history,
-                    accentGradient: ZColors.gradientCpu,
-                    series: [
-                      ChartSeries(
-                        label: 'CPU',
-                        gradient: ZColors.gradientCpu,
-                        liveExtractor: (m) => m.cpu.percentTotal,
-                        historyKey: 'cpu_percent',
-                      ),
-                    ],
-                    showTooltip: true,
-                  ),
-                  const SizedBox(height: 24),
-                  ProcessTable(processes: metrics.processes),
                 ],
               ),
             ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildExecutiveHeader(BuildContext context, SystemMetrics metrics) {
+    return GlassCard(
+      hoverable: false,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: ZColors.accent.withValues(alpha: 0.12),
+              borderRadius: ZRadii.inner,
+              border: Border.all(color: ZColors.accent.withValues(alpha: 0.25)),
+            ),
+            child: const Icon(
+              Icons.computer_rounded,
+              color: ZColors.accent,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'LOCAL WORKSTATION',
+                      style: ZText.title.copyWith(
+                        fontSize: 16,
+                        letterSpacing: 0.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: ZColors.green.withValues(alpha: 0.12),
+                        borderRadius: ZRadii.pill,
+                        border: Border.all(
+                          color: ZColors.green.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                              color: ZColors.green,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            'ONLINE',
+                            style: ZText.micro.copyWith(
+                              color: ZColors.green,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Windows System  •  ${metrics.cpu.coreCount} Cores / ${metrics.cpu.threadCount} Threads (${metrics.cpu.freqMhz} MHz)  •  ${metrics.memory.totalGb.toStringAsFixed(0)} GB RAM',
+                  style: ZText.caption.copyWith(
+                    color: ZColors.textSecondary,
+                    fontSize: 11,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const _TimestampChip(),
+        ],
+      ),
     );
   }
 }

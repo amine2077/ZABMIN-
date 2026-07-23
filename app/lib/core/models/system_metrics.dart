@@ -46,9 +46,7 @@ class SystemMetrics {
               .toList() ??
           [],
       battery: json['battery'] != null
-          ? BatteryStats.fromJson(
-              json['battery'] as Map<String, dynamic>,
-            )
+          ? BatteryStats.fromJson(json['battery'] as Map<String, dynamic>)
           : null,
     );
   }

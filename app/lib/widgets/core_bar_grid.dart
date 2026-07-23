@@ -85,9 +85,10 @@ class CoreBarGrid extends StatelessWidget {
                             curve: Curves.easeOutCubic,
                             builder: (context, v, _) {
                               return Container(
-                                width:
-                                    (c.maxWidth * v.clamp(0.0, 1.0))
-                                        .clamp(0, c.maxWidth),
+                                width: (c.maxWidth * v.clamp(0.0, 1.0)).clamp(
+                                  0,
+                                  c.maxWidth,
+                                ),
                                 height: 18,
                                 decoration: BoxDecoration(
                                   borderRadius: ZRadii.sm,

@@ -1,9 +1,9 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../core/theme/zcolors.dart';
 
+/// Crisp minimal glass card for Minimalist Executive Pro design.
+/// Backdrop blur is intentionally removed for a sharper, data-dense aesthetic.
 class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? padding;
@@ -24,49 +24,35 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = this.radius ?? ZRadii.card;
-    final glow = glowColor ?? ZColors.accent;
+    final r = radius ?? ZRadii.card;
 
     Widget content = Container(
       padding: padding ?? const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: radius,
+        borderRadius: r,
         gradient:
             gradient ??
-            LinearGradient(
+            const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [ZColors.surfaceElevated, ZColors.surface],
             ),
         border: Border.all(color: ZColors.border),
-        boxShadow: ZShadows.softElevation,
       ),
       child: child,
     );
 
-    content = ClipRRect(
-      borderRadius: radius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: content,
-      ),
-    );
-
     if (!hoverable) return content;
 
-    return _HoverLift(glow: glow, radius: radius, child: content);
+    return _HoverLift(radius: r, child: content);
   }
 }
 
 class _HoverLift extends StatefulWidget {
   final Widget child;
-  final Color glow;
   final BorderRadius radius;
-  const _HoverLift({
-    required this.child,
-    required this.glow,
-    required this.radius,
-  });
+
+  const _HoverLift({required this.child, required this.radius});
 
   @override
   State<_HoverLift> createState() => _HoverLiftState();
@@ -81,26 +67,25 @@ class _HoverLiftState extends State<_HoverLift> {
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
+        duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
-        transform: _hover
-            ? (Matrix4.identity()..translateByDouble(0.0, -3.0, 0.0, 1.0))
-            : Matrix4.identity(),
-        transformAlignment: Alignment.center,
         decoration: BoxDecoration(
           borderRadius: widget.radius,
           boxShadow: _hover
               ? [
-                  ...ZShadows.softElevation,
                   BoxShadow(
-                    color: widget.glow.withValues(alpha: 0.25),
-                    blurRadius: 28,
-                    spreadRadius: -6,
-                    offset: const Offset(0, 10),
+                    color: ZColors.accent.withValues(alpha: 0.10),
+                    blurRadius: 20,
+                    spreadRadius: -4,
+                    offset: const Offset(0, 6),
                   ),
                 ]
-              : ZShadows.softElevation,
+              : [],
         ),
+        transform: _hover
+            ? (Matrix4.identity()..translateByDouble(0.0, -2.0, 0.0, 1.0))
+            : Matrix4.identity(),
+        transformAlignment: Alignment.center,
         child: widget.child,
       ),
     );

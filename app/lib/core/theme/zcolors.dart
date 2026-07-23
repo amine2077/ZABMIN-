@@ -1,22 +1,22 @@
 import 'package:flutter/material.dart';
 
 class ZColors {
-  // --- Base palette (rich deep darks, never flat black) ---
-  static const Color background = Color(0xFF0A0E17);
-  static const Color backgroundDeep = Color(0xFF060911);
-  static const Color surface = Color(0xFF131A26);
-  static const Color surfaceElevated = Color(0xFF1A2332);
-  static const Color surfaceGlass = Color(0x80131A26); // 50% alpha for glass
+  // --- Base palette (rich deep darks, crisp executive slate) ---
+  static const Color background = Color(0xFF0F131C);
+  static const Color backgroundDeep = Color(0xFF0B0E15);
+  static const Color surface = Color(0xFF161B26);
+  static const Color surfaceElevated = Color(0xFF1E2536);
+  static const Color surfaceGlass = Color(0x99161B26); // 60% alpha for glass
 
-  // --- Borders (white with low alpha to feel like physical edges) ---
-  static const Color border = Color(0x14FFFFFF); // ~8% white
-  static const Color borderStrong = Color(0x1FFFFFFF); // ~12% white
-  static const Color hairline = Color(0x0AFFFFFF); // ~4% white
+  // --- Borders (solid crisp slate borders & hairlines) ---
+  static const Color border = Color(0xFF262F40);
+  static const Color borderStrong = Color(0xFF334057);
+  static const Color hairline = Color(0xFF1F2736);
 
   // --- Primary accent (electric cyan/blue) ---
-  static const Color accent = Color(0xFF38BDF8);
-  static const Color accentDeep = Color(0xFF0EA5E9);
-  static const Color accentSoft = Color(0xFF7DD3FC);
+  static const Color accent = Color(0xFF3B82F6);
+  static const Color accentDeep = Color(0xFF2563EB);
+  static const Color accentSoft = Color(0xFF60A5FA);
 
   // --- Semantic status colors ---
   static const Color green = Color(0xFF10B981);
@@ -24,10 +24,10 @@ class ZColors {
   static const Color orange = Color(0xFFF59E0B);
   static const Color red = Color(0xFFEF4444);
   static const Color redSoft = Color(0xFFF87171);
-  static const Color purple = Color(0xFFA855F7);
-  static const Color purpleSoft = Color(0xFFC084FC);
+  static const Color purple = Color(0xFF8B5CF6);
+  static const Color purpleSoft = Color(0xFFA78BFA);
   static const Color pink = Color(0xFFEC4899);
-  static const Color teal = Color(0xFF14B8A6);
+  static const Color teal = Color(0xFF06B6D4);
   static const Color indigo = Color(0xFF6366F1);
   static const Color amber = Color(0xFFF59E0B);
 
@@ -38,9 +38,9 @@ class ZColors {
   static const Color textMuted = Color(0xFF475569);
 
   // --- Chart / table surfaces ---
-  static const Color gridBg = Color(0xFF0F1520);
-  static const Color rowAlt = Color(0xFF111827);
-  static const Color rowHover = Color(0xFF1E293B);
+  static const Color gridBg = Color(0xFF111723);
+  static const Color rowAlt = Color(0xFF131A26);
+  static const Color rowHover = Color(0xFF1C2433);
 
   // --- Metric-specific gradient pairs ---
   static const List<Color> gradientCpu = [Color(0xFF22D3EE), Color(0xFF3B82F6)];

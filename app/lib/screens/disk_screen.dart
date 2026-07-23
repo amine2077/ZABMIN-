@@ -54,8 +54,7 @@ class _DiskScreenState extends State<DiskScreen> {
 
         final grouped = <String, List<DiskPartition>>{};
         for (final p in filteredPartitions) {
-          final key =
-              p.physicalDrive.isNotEmpty ? p.physicalDrive : 'volume';
+          final key = p.physicalDrive.isNotEmpty ? p.physicalDrive : 'volume';
           grouped.putIfAbsent(key, () => []).add(p);
         }
 
@@ -116,10 +115,14 @@ class _DiskScreenState extends State<DiskScreen> {
               const SizedBox(height: 16),
               ...grouped.entries.expand((entry) {
                 final parts = entry.value;
-                final driveRead =
-                    parts.fold<double>(0, (s, p) => s + p.readMbS);
-                final driveWrite =
-                    parts.fold<double>(0, (s, p) => s + p.writeMbS);
+                final driveRead = parts.fold<double>(
+                  0,
+                  (s, p) => s + p.readMbS,
+                );
+                final driveWrite = parts.fold<double>(
+                  0,
+                  (s, p) => s + p.writeMbS,
+                );
                 return [
                   _DiskGroupCard(
                     title: parts.first.physicalDrive.isNotEmpty
@@ -199,7 +202,8 @@ class _SummaryStat extends StatelessWidget {
             textBaseline: TextBaseline.alphabetic,
             children: [
               AnimatedMetric(
-                value: double.tryParse(
+                value:
+                    double.tryParse(
                       value.replaceAll(RegExp(r'[^0-9.\-]'), ''),
                     ) ??
                     0.0,
@@ -451,8 +455,9 @@ class _PartitionRow extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: color.withValues(alpha: 0.15),
                           borderRadius: ZRadii.pill,
-                          border:
-                              Border.all(color: color.withValues(alpha: 0.3)),
+                          border: Border.all(
+                            color: color.withValues(alpha: 0.3),
+                          ),
                         ),
                         child: Text(
                           '${p.percent.toStringAsFixed(1)}%',
@@ -494,8 +499,9 @@ class _PartitionRow extends StatelessWidget {
                     child: Container(
                       decoration: BoxDecoration(
                         borderRadius: ZRadii.pill,
-                        gradient:
-                            LinearGradient(colors: ZColors.usageGradient(p.percent)),
+                        gradient: LinearGradient(
+                          colors: ZColors.usageGradient(p.percent),
+                        ),
                         boxShadow: ZShadows.hairlineGlow(color),
                       ),
                     ),

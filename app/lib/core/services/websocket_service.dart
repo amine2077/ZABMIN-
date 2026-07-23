@@ -39,14 +39,17 @@ class WebSocketService extends ChangeNotifier {
 
   String? _findAgentDir() {
     try {
-      String searchPath =
-          Directory(Platform.script.resolve('.').toFilePath()).path;
+      String searchPath = Directory(
+        Platform.script.resolve('.').toFilePath(),
+      ).path;
       while (true) {
         final parent = Directory(searchPath).parent.path;
         if (parent == searchPath) break;
         final segments = Uri.directory(searchPath).pathSegments;
-        final dirName =
-            segments.lastWhere((s) => s.isNotEmpty, orElse: () => '');
+        final dirName = segments.lastWhere(
+          (s) => s.isNotEmpty,
+          orElse: () => '',
+        );
         if (dirName == 'app') {
           final candidate = Directory('$parent/agent');
           if (candidate.existsSync()) return candidate.path;
@@ -88,8 +91,7 @@ class WebSocketService extends ChangeNotifier {
           _connectAttempts = 0;
           _agentError = null;
           try {
-            final parsed =
-                jsonDecode(data as String) as Map<String, dynamic>;
+            final parsed = jsonDecode(data as String) as Map<String, dynamic>;
             final msgType = parsed['type'] as String?;
             final requestId = parsed['request_id'] as int?;
 
@@ -99,8 +101,7 @@ class WebSocketService extends ChangeNotifier {
                       ?.map((r) => Map<String, dynamic>.from(r as Map))
                       .toList() ??
                   [];
-              if (requestId != null &&
-                  _pendingHistory.containsKey(requestId)) {
+              if (requestId != null && _pendingHistory.containsKey(requestId)) {
                 final c = _pendingHistory.remove(requestId)!;
                 if (!c.isCompleted) c.complete(rows);
               }
@@ -263,11 +264,7 @@ class WebSocketService extends ChangeNotifier {
     final completer = Completer<Map<String, dynamic>>();
     _pendingPriority[pid] = completer;
     sendMessage(
-      jsonEncode({
-        'type': 'get_priority',
-        'pid': pid,
-        'request_id': rid,
-      }),
+      jsonEncode({'type': 'get_priority', 'pid': pid, 'request_id': rid}),
     );
     return completer.future.timeout(
       const Duration(seconds: 5),

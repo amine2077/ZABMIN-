@@ -9,8 +9,15 @@ import 'glass_card.dart';
 
 class ProcessTable extends StatefulWidget {
   final List<ProcessInfo> processes;
+  final int? limit;
+  final VoidCallback? onViewAll;
 
-  const ProcessTable({super.key, required this.processes});
+  const ProcessTable({
+    super.key,
+    required this.processes,
+    this.limit,
+    this.onViewAll,
+  });
 
   @override
   State<ProcessTable> createState() => _ProcessTableState();
@@ -21,8 +28,12 @@ class _ProcessTableState extends State<ProcessTable> {
 
   @override
   Widget build(BuildContext context) {
-    final sorted = List<ProcessInfo>.from(widget.processes)
+    var sorted = List<ProcessInfo>.from(widget.processes)
       ..sort((a, b) => b.cpuPercent.compareTo(a.cpuPercent));
+
+    if (widget.limit != null && sorted.length > widget.limit!) {
+      sorted = sorted.take(widget.limit!).toList();
+    }
 
     return GlassCard(
       hoverable: false,
@@ -67,6 +78,36 @@ class _ProcessTableState extends State<ProcessTable> {
                     ),
                   ),
                 ),
+                if (widget.onViewAll != null) ...[
+                  const Spacer(),
+                  InkWell(
+                    onTap: widget.onViewAll,
+                    borderRadius: ZRadii.inner,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            'View All',
+                            style: ZText.caption.copyWith(
+                              color: ZColors.accent,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 14,
+                            color: ZColors.accent,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -82,10 +123,9 @@ class _ProcessTableState extends State<ProcessTable> {
               itemBuilder: (context, index) {
                 return MouseRegion(
                   onEnter: (_) => setState(() => _hoverIndex = index),
-                  onExit:
-                      (_) => setState(() {
-                        if (_hoverIndex == index) _hoverIndex = null;
-                      }),
+                  onExit: (_) => setState(() {
+                    if (_hoverIndex == index) _hoverIndex = null;
+                  }),
                   child: _ProcessRow(
                     process: sorted[index],
                     index: index,
@@ -105,48 +145,45 @@ class _ProcessTableState extends State<ProcessTable> {
   void _confirmKill(BuildContext context, ProcessInfo process) {
     showDialog(
       context: context,
-      builder:
-          (ctx) => AlertDialog(
-            backgroundColor: ZColors.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: ZRadii.card,
-              side: const BorderSide(color: ZColors.borderStrong),
-            ),
-            title: Row(
-              children: [
-                Icon(Icons.warning_amber_rounded, color: ZColors.red, size: 22),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text('Kill ${process.name}?', style: ZText.title),
-                ),
-              ],
-            ),
-            content: Text(
-              'This will terminate PID ${process.pid}. Unsaved work in that process will be lost.',
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ZColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: ZRadii.card,
+          side: const BorderSide(color: ZColors.borderStrong),
+        ),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: ZColors.red, size: 22),
+            const SizedBox(width: 10),
+            Expanded(child: Text('Kill ${process.name}?', style: ZText.title)),
+          ],
+        ),
+        content: Text(
+          'This will terminate PID ${process.pid}. Unsaved work in that process will be lost.',
+          style: ZText.body.copyWith(color: ZColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'Cancel',
               style: ZText.body.copyWith(color: ZColors.textSecondary),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(
-                  'Cancel',
-                  style: ZText.body.copyWith(color: ZColors.textSecondary),
-                ),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ZColors.red,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: ZRadii.inner),
-                ),
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  _doKill(context, process);
-                },
-                child: const Text('Kill Process'),
-              ),
-            ],
           ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: ZColors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: ZRadii.inner),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _doKill(context, process);
+            },
+            child: const Text('Kill Process'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -175,10 +212,9 @@ class _ProcessTableState extends State<ProcessTable> {
               ),
             ],
           ),
-          backgroundColor:
-              success
-                  ? ZColors.green.withValues(alpha: 0.95)
-                  : ZColors.red.withValues(alpha: 0.95),
+          backgroundColor: success
+              ? ZColors.green.withValues(alpha: 0.95)
+              : ZColors.red.withValues(alpha: 0.95),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: ZRadii.inner),
         ),
@@ -244,10 +280,9 @@ class _ProcessRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final baseBg =
-        index.isEven
-            ? ZColors.surface.withValues(alpha: 0.2)
-            : ZColors.rowAlt.withValues(alpha: 0.4);
+    final baseBg = index.isEven
+        ? ZColors.surface.withValues(alpha: 0.2)
+        : ZColors.rowAlt.withValues(alpha: 0.4);
     final bg = hovered ? ZColors.rowHover : baseBg;
 
     return AnimatedContainer(
@@ -350,15 +385,13 @@ class _ProcessRow extends StatelessWidget {
                     height: 28,
                     decoration: BoxDecoration(
                       borderRadius: ZRadii.inner,
-                      color:
-                          hovered
-                              ? ZColors.red.withValues(alpha: 0.12)
-                              : Colors.transparent,
+                      color: hovered
+                          ? ZColors.red.withValues(alpha: 0.12)
+                          : Colors.transparent,
                       border: Border.all(
-                        color:
-                            hovered
-                                ? ZColors.red.withValues(alpha: 0.3)
-                                : Colors.transparent,
+                        color: hovered
+                            ? ZColors.red.withValues(alpha: 0.3)
+                            : Colors.transparent,
                       ),
                     ),
                     alignment: Alignment.center,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
@@ -24,80 +25,116 @@ class ScreenShell extends StatelessWidget {
     return LayoutBuilder(
       builder: (ctx, constraints) {
         final narrow = constraints.maxWidth < 720;
-        final hPad = narrow ? 16.0 : 28.0;
-        final vPad = narrow ? 18.0 : 28.0;
-        return Stack(
+        final hPad = narrow ? 16.0 : 24.0;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Positioned(
-              top: -100,
-              right: -60,
-              child: Container(
-                width: 320,
-                height: 320,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      accentGradient.first.withValues(alpha: 0.10),
-                      Colors.transparent,
-                    ],
-                  ),
+            // ── Compact Executive Header ─────────────────────────────────
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 14),
+              decoration: BoxDecoration(
+                color: ZColors.surface,
+                border: const Border(
+                  bottom: BorderSide(color: ZColors.border, width: 1),
                 ),
               ),
-            ),
-            SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(hPad, vPad, hPad, vPad),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 5,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          borderRadius: ZRadii.pill,
-                          gradient: LinearGradient(colors: accentGradient),
-                          boxShadow: ZShadows.hairlineGlow(accentGradient.last),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: ZText.display.copyWith(
-                                fontSize: narrow ? 24 : 30,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              subtitle,
-                              style: ZText.body.copyWith(
-                                color: ZColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (actions != null) ...[
-                        const SizedBox(width: 12),
-                        ...actions!,
-                      ],
-                    ],
+                  // Accent bar
+                  Container(
+                    width: 4,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      borderRadius: ZRadii.pill,
+                      gradient: LinearGradient(colors: accentGradient),
+                    ),
                   ),
-                  const SizedBox(height: 24),
-                  ...children,
+                  const SizedBox(width: 12),
+                  // Icon badge
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: accentGradient.first.withValues(alpha: 0.12),
+                      borderRadius: ZRadii.inner,
+                      border: Border.all(
+                        color: accentGradient.first.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: Icon(
+                      _iconForTitle(title),
+                      size: 16,
+                      color: accentGradient.first,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Title + subtitle
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title.toUpperCase(),
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.5,
+                            color: ZColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          subtitle,
+                          style: ZText.caption.copyWith(
+                            color: ZColors.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (actions != null) ...[
+                    const SizedBox(width: 12),
+                    ...actions!,
+                  ],
                 ],
+              ),
+            ),
+            // ── Scrollable Content ───────────────────────────────────────
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(hPad, 20, hPad, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: children,
+                ),
               ),
             ),
           ],
         );
       },
     );
+  }
+
+  IconData _iconForTitle(String t) {
+    switch (t.toLowerCase()) {
+      case 'memory':
+        return Icons.pie_chart_rounded;
+      case 'network':
+        return Icons.sensors_rounded;
+      case 'disk':
+        return Icons.dns_rounded;
+      case 'graphics':
+        return Icons.videogame_asset_rounded;
+      case 'processes':
+        return Icons.list_alt_rounded;
+      case 'settings':
+        return Icons.tune_rounded;
+      default:
+        return Icons.monitor_heart_rounded;
+    }
   }
 }
 
@@ -118,43 +155,39 @@ class DetailStatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
+        color: ZColors.surface,
         borderRadius: ZRadii.card,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [ZColors.surfaceElevated, ZColors.surface],
-        ),
         border: Border.all(color: ZColors.border),
-        boxShadow: ZShadows.softElevation,
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
               borderRadius: ZRadii.inner,
-              gradient: LinearGradient(
-                colors: gradient.map((c) => c.withValues(alpha: 0.18)).toList(),
-              ),
-              border: Border.all(color: ZColors.border),
+              color: gradient.first.withValues(alpha: 0.12),
+              border: Border.all(color: gradient.first.withValues(alpha: 0.25)),
             ),
-            child: Icon(icon, color: gradient.first, size: 20),
+            child: Icon(icon, color: gradient.first, size: 18),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label.toUpperCase(), style: ZText.micro),
-                const SizedBox(height: 4),
+                Text(
+                  label.toUpperCase(),
+                  style: ZText.micro.copyWith(letterSpacing: 1.0),
+                ),
+                const SizedBox(height: 3),
                 Text(
                   value,
-                  style: ZText.metricSm.copyWith(
+                  style: ZText.section.copyWith(
                     color: ZColors.textPrimary,
                     fontWeight: FontWeight.w700,
-                    fontSize: 18,
+                    fontSize: 17,
                   ),
                 ),
               ],
@@ -187,9 +220,10 @@ class InlineStat extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           value,
-          style: ZText.metricSm.copyWith(
+          style: ZText.section.copyWith(
             color: color,
             fontWeight: FontWeight.w700,
+            fontSize: 18,
           ),
         ),
       ],

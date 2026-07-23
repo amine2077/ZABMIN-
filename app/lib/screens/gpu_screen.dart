@@ -191,8 +191,7 @@ class _GpuCard extends StatelessWidget {
                   children: [
                     Text(gpu.name, style: ZText.title),
                     if (gpu.driverVersion.isNotEmpty)
-                      Text('Driver ${gpu.driverVersion}',
-                          style: ZText.caption),
+                      Text('Driver ${gpu.driverVersion}', style: ZText.caption),
                   ],
                 ),
               ),
@@ -365,8 +364,9 @@ class _BarSection extends StatelessWidget {
               duration: const Duration(milliseconds: 600),
               curve: Curves.easeOutCubic,
               builder: (context, v, _) {
-                final text =
-                    detail.contains('%') ? '${v.toStringAsFixed(1)}%' : detail;
+                final text = detail.contains('%')
+                    ? '${v.toStringAsFixed(1)}%'
+                    : detail;
                 return Text(
                   text,
                   style: ZText.body.copyWith(
@@ -388,8 +388,7 @@ class _BarSection extends StatelessWidget {
                 borderRadius: ZRadii.pill,
               ),
               child: TweenAnimationBuilder<double>(
-                tween:
-                    Tween<double>(begin: percent / 100, end: percent / 100),
+                tween: Tween<double>(begin: percent / 100, end: percent / 100),
                 duration: const Duration(milliseconds: 700),
                 curve: Curves.easeOutCubic,
                 builder: (context, v, _) {

@@ -169,8 +169,9 @@ class _ThroughputCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: ZRadii.inner,
                   gradient: LinearGradient(
-                    colors:
-                        gradient.map((c) => c.withValues(alpha: 0.18)).toList(),
+                    colors: gradient
+                        .map((c) => c.withValues(alpha: 0.18))
+                        .toList(),
                   ),
                   border: Border.all(color: ZColors.border),
                 ),

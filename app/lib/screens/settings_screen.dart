@@ -142,10 +142,9 @@ class _ThresholdSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final display =
-        decimals > 0
-            ? value.toStringAsFixed(decimals)
-            : value.round().toString();
+    final display = decimals > 0
+        ? value.toStringAsFixed(decimals)
+        : value.round().toString();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -298,7 +297,11 @@ class _ToggleRow extends StatelessWidget {
             ],
           ),
         ),
-        Switch(value: value, onChanged: onChanged, activeColor: gradient.first),
+        Switch(
+          value: value,
+          onChanged: onChanged,
+          activeThumbColor: gradient.first,
+        ),
       ],
     );
   }

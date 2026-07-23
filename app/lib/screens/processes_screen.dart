@@ -68,6 +68,7 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
         }
       }
     }
+
     walk(roots, 0);
     return result;
   }
@@ -105,18 +106,19 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
         final allProcesses = List<ProcessInfo>.from(metrics.processes)
           ..sort((a, b) => b.cpuPercent.compareTo(a.cpuPercent));
 
-        final filteredBase =
-            _searchText.isEmpty
-                ? allProcesses
-                : allProcesses
-                    .where(
-                      (p) => p.name.toLowerCase().contains(
-                        _searchText.toLowerCase(),
-                      ),
-                    )
-                    .toList();
+        final filteredBase = _searchText.isEmpty
+            ? allProcesses
+            : allProcesses
+                  .where(
+                    (p) => p.name.toLowerCase().contains(
+                      _searchText.toLowerCase(),
+                    ),
+                  )
+                  .toList();
 
-        final filtered = _treeMode ? _buildTreeList(filteredBase) : filteredBase;
+        final filtered = _treeMode
+            ? _buildTreeList(filteredBase)
+            : filteredBase;
 
         return Stack(
           children: [
@@ -237,14 +239,16 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
                         ),
                         decoration: BoxDecoration(
                           color: _treeMode
-                              ? ZColors.gradientCpu.first
-                                  .withValues(alpha: 0.15)
+                              ? ZColors.gradientCpu.first.withValues(
+                                  alpha: 0.15,
+                                )
                               : ZColors.border.withValues(alpha: 0.3),
                           borderRadius: ZRadii.pill,
                           border: Border.all(
                             color: _treeMode
-                                ? ZColors.gradientCpu.first
-                                    .withValues(alpha: 0.3)
+                                ? ZColors.gradientCpu.first.withValues(
+                                    alpha: 0.3,
+                                  )
                                 : ZColors.hairline,
                           ),
                         ),
@@ -306,52 +310,49 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
   void _confirmKill(BuildContext context, ProcessInfo process) {
     showDialog(
       context: context,
-      builder:
-          (ctx) => AlertDialog(
-            backgroundColor: ZColors.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: ZRadii.card,
-              side: const BorderSide(color: ZColors.borderStrong),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ZColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: ZRadii.card,
+          side: const BorderSide(color: ZColors.borderStrong),
+        ),
+        title: Row(
+          children: [
+            const Icon(
+              Icons.warning_amber_rounded,
+              color: ZColors.red,
+              size: 22,
             ),
-            title: Row(
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  color: ZColors.red,
-                  size: 22,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text('Kill ${process.name}?', style: ZText.title),
-                ),
-              ],
-            ),
-            content: Text(
-              'This will terminate PID ${process.pid}.',
+            const SizedBox(width: 10),
+            Expanded(child: Text('Kill ${process.name}?', style: ZText.title)),
+          ],
+        ),
+        content: Text(
+          'This will terminate PID ${process.pid}.',
+          style: ZText.body.copyWith(color: ZColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'Cancel',
               style: ZText.body.copyWith(color: ZColors.textSecondary),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(
-                  'Cancel',
-                  style: ZText.body.copyWith(color: ZColors.textSecondary),
-                ),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ZColors.red,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: ZRadii.inner),
-                ),
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  _doKill(context, process);
-                },
-                child: const Text('Kill Process'),
-              ),
-            ],
           ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: ZColors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: ZRadii.inner),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _doKill(context, process);
+            },
+            child: const Text('Kill Process'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -380,10 +381,9 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
               ),
             ],
           ),
-          backgroundColor:
-              success
-                  ? ZColors.green.withValues(alpha: 0.95)
-                  : ZColors.red.withValues(alpha: 0.95),
+          backgroundColor: success
+              ? ZColors.green.withValues(alpha: 0.95)
+              : ZColors.red.withValues(alpha: 0.95),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: ZRadii.inner),
         ),
@@ -508,8 +508,6 @@ class _SummaryStatString extends StatelessWidget {
   }
 }
 
-
-
 class _ProcessRow extends StatefulWidget {
   final ProcessInfo proc;
   final int index;
@@ -537,19 +535,17 @@ class _ProcessRowState extends State<_ProcessRow> {
   @override
   Widget build(BuildContext context) {
     final proc = widget.proc;
-    final baseBg =
-        widget.index.isEven
-            ? ZColors.surface.withValues(alpha: 0.2)
-            : ZColors.rowAlt.withValues(alpha: 0.4);
+    final baseBg = widget.index.isEven
+        ? ZColors.surface.withValues(alpha: 0.2)
+        : ZColors.rowAlt.withValues(alpha: 0.4);
     final bg = _hovered ? ZColors.rowHover : baseBg;
     final cpuColor = ZColors.usageColor(proc.cpuPercent);
     final status = proc.status.toLowerCase();
-    final statusColor =
-        status == 'running'
-            ? ZColors.green
-            : status == 'sleeping'
-            ? ZColors.accent
-            : ZColors.textTertiary;
+    final statusColor = status == 'running'
+        ? ZColors.green
+        : status == 'sleeping'
+        ? ZColors.accent
+        : ZColors.textTertiary;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -767,15 +763,13 @@ class _ProcessRowState extends State<_ProcessRow> {
                           height: 26,
                           decoration: BoxDecoration(
                             borderRadius: ZRadii.inner,
-                            color:
-                                _hovered
-                                    ? ZColors.red.withValues(alpha: 0.12)
-                                    : Colors.transparent,
+                            color: _hovered
+                                ? ZColors.red.withValues(alpha: 0.12)
+                                : Colors.transparent,
                             border: Border.all(
-                              color:
-                                  _hovered
-                                      ? ZColors.red.withValues(alpha: 0.3)
-                                      : Colors.transparent,
+                              color: _hovered
+                                  ? ZColors.red.withValues(alpha: 0.3)
+                                  : Colors.transparent,
                             ),
                           ),
                           alignment: Alignment.center,
@@ -894,10 +888,9 @@ class _ConnectionPanelState extends State<_ConnectionPanel> {
             ),
           ],
         ),
-        backgroundColor:
-            success
-                ? ZColors.green.withValues(alpha: 0.95)
-                : ZColors.red.withValues(alpha: 0.95),
+        backgroundColor: success
+            ? ZColors.green.withValues(alpha: 0.95)
+            : ZColors.red.withValues(alpha: 0.95),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: ZRadii.inner),
       ),
@@ -987,10 +980,9 @@ class _ConnectionPanelState extends State<_ConnectionPanel> {
             decoration: BoxDecoration(
               borderRadius: ZRadii.inner,
               gradient: LinearGradient(
-                colors:
-                    ZColors.gradientCpu
-                        .map((c) => c.withValues(alpha: 0.18))
-                        .toList(),
+                colors: ZColors.gradientCpu
+                    .map((c) => c.withValues(alpha: 0.18))
+                    .toList(),
               ),
               border: Border.all(color: ZColors.border),
             ),

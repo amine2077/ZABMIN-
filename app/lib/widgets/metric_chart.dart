@@ -77,7 +77,7 @@ class _MetricChartState extends State<MetricChart> {
 
   List<List<FlSpot>> _buildSpots() {
     final allSpots = <List<FlSpot>>[];
-    for (final s in widget.series) {
+    for (int i = 0; i < widget.series.length; i++) {
       allSpots.add(<FlSpot>[]);
     }
 
@@ -134,10 +134,9 @@ class _MetricChartState extends State<MetricChart> {
       onRangeChanged: _onRangeChanged,
       loading: _loading,
       accentGradient: widget.accentGradient,
-      child:
-          isEmpty
-              ? const ChartEmptyState()
-              : _buildChart(allSpots, maxY, interval, format),
+      child: isEmpty
+          ? const ChartEmptyState()
+          : _buildChart(allSpots, maxY, interval, format),
     );
   }
 
@@ -158,28 +157,27 @@ class _MetricChartState extends State<MetricChart> {
       );
     }
 
-    final touchData =
-        widget.showTooltip
-            ? LineTouchData(
-              enabled: true,
-              touchTooltipData: LineTouchTooltipData(
-                getTooltipItems: (spots) {
-                  return spots
-                      .map(
-                        (s) => LineTooltipItem(
-                          '${s.y.toStringAsFixed(1)}%',
-                          inter(
-                            size: 11,
-                            weight: FontWeight.w600,
-                            color: ZColors.textPrimary,
-                          ),
+    final touchData = widget.showTooltip
+        ? LineTouchData(
+            enabled: true,
+            touchTooltipData: LineTouchTooltipData(
+              getTooltipItems: (spots) {
+                return spots
+                    .map(
+                      (s) => LineTooltipItem(
+                        '${s.y.toStringAsFixed(1)}%',
+                        inter(
+                          size: 11,
+                          weight: FontWeight.w600,
+                          color: ZColors.textPrimary,
                         ),
-                      )
-                      .toList();
-                },
-              ),
-            )
-            : LineTouchData(enabled: false);
+                      ),
+                    )
+                    .toList();
+              },
+            ),
+          )
+        : LineTouchData(enabled: false);
 
     final chart = LineChart(
       LineChartData(

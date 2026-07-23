@@ -15,6 +15,7 @@ import 'core/services/websocket_service.dart';
 import 'core/services/alerts_service.dart';
 import 'core/services/history_service.dart';
 import 'core/services/settings_service.dart';
+import 'core/theme/app_theme.dart';
 import 'core/theme/zcolors.dart';
 import 'screens/dashboard_screen.dart';
 import 'widgets/export_dialog.dart';
@@ -95,11 +96,15 @@ void main() async {
 
   await trayManager.setIcon('assets/tray_icon.png');
   await trayManager.setToolTip('Zabmin');
-  await trayManager.setContextMenu(Menu(items: [
-    MenuItem(label: 'Show Zabmin', key: 'show'),
-    MenuItem.separator(),
-    MenuItem(label: 'Exit', key: 'exit'),
-  ]));
+  await trayManager.setContextMenu(
+    Menu(
+      items: [
+        MenuItem(label: 'Show Zabmin', key: 'show'),
+        MenuItem.separator(),
+        MenuItem(label: 'Exit', key: 'exit'),
+      ],
+    ),
+  );
 
   await localNotifier.setup(
     appName: 'Zabmin',
@@ -135,16 +140,7 @@ class ZabminApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Zabmin',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          brightness: Brightness.dark,
-          scaffoldBackgroundColor: const Color(0xFF0D1117),
-          colorScheme: ColorScheme.dark(
-            primary: const Color(0xFF58A6FF),
-            surface: const Color(0xFF161B22),
-            secondary: const Color(0xFF8B949E),
-          ),
-          useMaterial3: true,
-        ),
+        theme: ZTheme.dark,
         home: const AppShell(),
       ),
     );
@@ -442,17 +438,10 @@ class _AppShellState extends State<AppShell> with WindowListener, TrayListener {
         }
       },
       child: Container(
-        height: 40,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: [
-              ZColors.surfaceElevated.withValues(alpha: 0.95),
-              ZColors.surface.withValues(alpha: 0.95),
-            ],
-          ),
-          border: const Border(bottom: BorderSide(color: ZColors.hairline)),
+        height: 38,
+        decoration: const BoxDecoration(
+          color: ZColors.surface,
+          border: Border(bottom: BorderSide(color: ZColors.border, width: 1)),
         ),
         child: Row(
           children: [
@@ -462,14 +451,16 @@ class _AppShellState extends State<AppShell> with WindowListener, TrayListener {
               height: 18,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(4),
-                gradient: const LinearGradient(colors: ZColors.gradientAccent),
-                boxShadow: ZShadows.hairlineGlow(ZColors.accent),
+                color: ZColors.accent.withValues(alpha: 0.15),
+                border: Border.all(
+                  color: ZColors.accent.withValues(alpha: 0.35),
+                ),
               ),
               alignment: Alignment.center,
               child: const Icon(
-                Icons.bolt_rounded,
+                Icons.monitor_heart_rounded,
                 size: 11,
-                color: Colors.white,
+                color: ZColors.accent,
               ),
             ),
             const SizedBox(width: 8),
@@ -493,15 +484,19 @@ class _AppShellState extends State<AppShell> with WindowListener, TrayListener {
                 );
               },
             ),
+            const SizedBox(
+              width: 1,
+              height: 20,
+              child: ColoredBox(color: ZColors.border),
+            ),
             _WindowButton(
               icon: Icons.remove_rounded,
               onPressed: () => windowManager.minimize(),
             ),
             _WindowButton(
-              icon:
-                  _isMaximized
-                      ? Icons.filter_none_rounded
-                      : Icons.crop_square_rounded,
+              icon: _isMaximized
+                  ? Icons.filter_none_rounded
+                  : Icons.crop_square_rounded,
               onPressed: () async {
                 if (_isMaximized) {
                   await windowManager.unmaximize();
@@ -542,12 +537,12 @@ class _WindowButtonState extends State<_WindowButton> {
 
   @override
   Widget build(BuildContext context) {
-    final bgColor =
-        _hovering
-            ? (widget.isClose ? ZColors.red : ZColors.surface)
-            : Colors.transparent;
-    final iconColor =
-        _hovering && widget.isClose ? Colors.white : ZColors.textSecondary;
+    final bgColor = _hovering
+        ? (widget.isClose ? ZColors.red : ZColors.surface)
+        : Colors.transparent;
+    final iconColor = _hovering && widget.isClose
+        ? Colors.white
+        : ZColors.textSecondary;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),

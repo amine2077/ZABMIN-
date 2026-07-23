@@ -46,15 +46,13 @@ class SearchField extends StatelessWidget {
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(vertical: 12),
                   hintText: hintText,
-                  hintStyle:
-                      ZText.body.copyWith(color: ZColors.textTertiary),
+                  hintStyle: ZText.body.copyWith(color: ZColors.textTertiary),
                 ),
               ),
             ),
             if (totalCount > 0)
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: ZColors.accent.withValues(alpha: 0.1),
                   borderRadius: ZRadii.pill,
