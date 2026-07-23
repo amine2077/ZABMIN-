@@ -1,5 +1,5 @@
 """Test disk collector — verifies partition enumeration + delta I/O speed."""
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import patch
 
 import pytest
 

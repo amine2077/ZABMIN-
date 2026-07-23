@@ -36,7 +36,7 @@ def test_collect_uses_total_minus_available_not_psutil_used():
 
     result = collect()
     expected_used = 16.0 - 4.0
-    assert result["used_gb"] == 12.0
+    assert result["used_gb"] == expected_used
     assert result["total_gb"] == 16.0
     assert result["percent"] == 75.0
     assert result["available_gb"] == 4.0
