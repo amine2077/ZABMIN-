@@ -59,6 +59,9 @@ def _clear_status():
 connected_clients = set()
 _shutdown_event = asyncio.Event()
 
+# TEMP: Day 1 baseline measurement, remove or replace with agent/collector_runner.py timing framework in Day 6
+_collector_timing_counter = 0
+
 
 def _write_pid_file():
     try:
@@ -117,19 +120,42 @@ async def _run_in_thread(fn, label, with_com=False, timeout=COLLECTOR_TIMEOUT):
         return None
 
 
+# TEMP: Day 1 baseline measurement, remove or replace with agent/collector_runner.py timing framework in Day 6
 async def gather_metrics():
     """Collect all metrics in parallel threads. Only cpu+memory need COM init."""
-    cpu_task = _run_in_thread(collect_cpu, "cpu", with_com=True)
-    mem_task = _run_in_thread(collect_memory, "memory", with_com=True)
-    disk_task = _run_in_thread(collect_disk, "disk")
-    net_task = _run_in_thread(collect_network, "network")
-    procs_task = _run_in_thread(collect_processes, "processes")
-    gpu_task = _run_in_thread(collect_gpu, "gpu", with_com=True)
-    battery_task = _run_in_thread(collect_battery, "battery")
+    global _collector_timing_counter
+    _timings = {}
+
+    async def _timed(label, coro):
+        t0 = time.monotonic()
+        result = await coro
+        _timings[label] = (time.monotonic() - t0) * 1000
+        return result
+
+    cpu_task = _timed("cpu", _run_in_thread(collect_cpu, "cpu", with_com=True))
+    mem_task = _timed("memory", _run_in_thread(collect_memory, "memory", with_com=True))
+    disk_task = _timed("disk", _run_in_thread(collect_disk, "disk"))
+    net_task = _timed("network", _run_in_thread(collect_network, "network"))
+    procs_task = _timed("processes", _run_in_thread(collect_processes, "processes"))
+    gpu_task = _timed("gpu", _run_in_thread(collect_gpu, "gpu", with_com=True))
+    battery_task = _timed("battery", _run_in_thread(collect_battery, "battery"))
 
     cpu, mem, disk, net, procs, gpu, battery = await asyncio.gather(
         cpu_task, mem_task, disk_task, net_task, procs_task, gpu_task, battery_task,
     )
+
+    _collector_timing_counter += 1
+    if _collector_timing_counter >= 10:
+        _collector_timing_counter = 0
+        logger.info(
+            f"collector timings: cpu={_timings.get('cpu', 0):.0f}ms "
+            f"mem={_timings.get('memory', 0):.0f}ms "
+            f"disk={_timings.get('disk', 0):.0f}ms "
+            f"net={_timings.get('network', 0):.0f}ms "
+            f"proc={_timings.get('processes', 0):.0f}ms "
+            f"gpu={_timings.get('gpu', 0):.0f}ms "
+            f"batt={_timings.get('battery', 0):.0f}ms"
+        )
     payload = {
         "version": 3,
         "timestamp": int(time.time()),
