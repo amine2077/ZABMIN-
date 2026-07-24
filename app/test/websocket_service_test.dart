@@ -1,13 +1,5 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zabmin/core/services/websocket_service.dart';
-
-/// Override Platform.environment so _readRuntimeFile returns predictable data
-Map<String, String> _testEnv(Map<String, String> base) {
-  return {'LOCALAPPDATA': '/tmp/zabmin_test', ...base};
-}
 
 void main() {
   group('WebSocketService - auth rejection (closeCode 4401)', () {
@@ -31,10 +23,7 @@ void main() {
       // This validates the error path in _waitForRuntimeAndConnect
       await Future.delayed(const Duration(milliseconds: 100));
 
-      // At this point, service is still 'connecting' since
-      // the real polling with Platform.environment won't find a file
-      // We can't easily mock Platform.environment in the test environment,
-      // so we verify the service is in a known valid state
+      // service stays in a known connecting/disconnected state
       expect(service.connectionStatus, anyOf('connecting', 'disconnected'));
     });
   });

@@ -235,33 +235,63 @@ class _TableHeader extends StatelessWidget {
           bottom: BorderSide(color: ZColors.hairline),
         ),
       ),
-      child: Row(
-        children: [
-          _cell('PID', width: 68),
-          _cell('Process', flex: 4),
-          _cell('CPU', width: 110, align: TextAlign.right),
-          _cell('Memory', width: 90, align: TextAlign.right),
-          _cell('Status', width: 100, align: TextAlign.center),
-          _cell('Conns', width: 60, align: TextAlign.right),
-          const SizedBox(width: 44),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final showMemory = constraints.maxWidth > 430;
+          final showStatus = constraints.maxWidth > 540;
+          return Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'PROCESS',
+                  overflow: TextOverflow.ellipsis,
+                  style: ZText.micro.copyWith(
+                    letterSpacing: 1.2,
+                    color: ZColors.textTertiary,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 64,
+                child: Text(
+                  'CPU',
+                  textAlign: TextAlign.right,
+                  style: ZText.micro.copyWith(
+                    letterSpacing: 1.2,
+                    color: ZColors.textTertiary,
+                  ),
+                ),
+              ),
+              if (showMemory)
+                SizedBox(
+                  width: 84,
+                  child: Text(
+                    'MEMORY',
+                    textAlign: TextAlign.right,
+                    style: ZText.micro.copyWith(
+                      letterSpacing: 1.2,
+                      color: ZColors.textTertiary,
+                    ),
+                  ),
+                ),
+              if (showStatus)
+                SizedBox(
+                  width: 72,
+                  child: Text(
+                    'STATUS',
+                    textAlign: TextAlign.center,
+                    style: ZText.micro.copyWith(
+                      letterSpacing: 1.2,
+                      color: ZColors.textTertiary,
+                    ),
+                  ),
+                ),
+              const SizedBox(width: 44),
+            ],
+          );
+        },
       ),
     );
-  }
-
-  Widget _cell(String text, {double? width, int? flex, TextAlign? align}) {
-    final widget = Text(
-      text.toUpperCase(),
-      textAlign: align ?? TextAlign.left,
-      style: ZText.micro.copyWith(
-        letterSpacing: 1.2,
-        color: ZColors.textTertiary,
-      ),
-    );
-    if (flex != null) {
-      return Expanded(flex: flex, child: widget);
-    }
-    return SizedBox(width: width, child: widget);
   }
 }
 
@@ -290,190 +320,121 @@ class _ProcessRow extends StatelessWidget {
       curve: Curves.easeOutCubic,
       color: bg,
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 68,
-            child: Text(
-              process.pid.toString(),
-              style: ZText.mono(
-                size: 11,
-                weight: FontWeight.w500,
-              ).copyWith(color: ZColors.textTertiary),
-            ),
-          ),
-          Expanded(
-            flex: 4,
-            child: Row(
-              children: [
-                Container(
-                  width: 26,
-                  height: 26,
-                  decoration: BoxDecoration(
-                    borderRadius: ZRadii.inner,
-                    gradient: LinearGradient(
-                      colors: [
-                        ZColors.accent.withValues(alpha: 0.15),
-                        ZColors.purple.withValues(alpha: 0.15),
-                      ],
-                    ),
-                    border: Border.all(color: ZColors.border),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    (process.name.isEmpty ? '?' : process.name.characters.first)
-                        .toUpperCase(),
-                    style: ZText.caption.copyWith(
-                      color: ZColors.accent,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 10,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    process.name,
-                    overflow: TextOverflow.ellipsis,
-                    style: ZText.body.copyWith(
-                      color: ZColors.textPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(width: 110, child: _CpuCell(percent: process.cpuPercent)),
-          SizedBox(
-            width: 90,
-            child: Text(
-              '${process.memoryMb.toStringAsFixed(1)} MB',
-              textAlign: TextAlign.right,
-              style: ZText.mono(
-                size: 11,
-                weight: FontWeight.w500,
-              ).copyWith(color: ZColors.textTertiary),
-            ),
-          ),
-          SizedBox(
-            width: 100,
-            child: Center(child: _StatusPill(status: process.status)),
-          ),
-          SizedBox(
-            width: 60,
-            child: Text(
-              process.connections.toString(),
-              textAlign: TextAlign.right,
-              style: ZText.mono(
-                size: 11,
-                weight: FontWeight.w500,
-              ).copyWith(color: ZColors.textTertiary),
-            ),
-          ),
-          SizedBox(
-            width: 44,
-            child: Center(
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: onKill,
-                  borderRadius: ZRadii.inner,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      borderRadius: ZRadii.inner,
-                      color: hovered
-                          ? ZColors.red.withValues(alpha: 0.12)
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: hovered
-                            ? ZColors.red.withValues(alpha: 0.3)
-                            : Colors.transparent,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final showMemory = constraints.maxWidth > 430;
+          final showStatus = constraints.maxWidth > 540;
+          return Row(
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        borderRadius: ZRadii.inner,
+                        gradient: LinearGradient(
+                          colors: [
+                            ZColors.accent.withValues(alpha: 0.15),
+                            ZColors.purple.withValues(alpha: 0.15),
+                          ],
+                        ),
+                        border: Border.all(color: ZColors.border),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        (process.name.isEmpty
+                                ? '?'
+                                : process.name.characters.first)
+                            .toUpperCase(),
+                        style: ZText.caption.copyWith(
+                          color: ZColors.accent,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 10,
+                        ),
                       ),
                     ),
-                    alignment: Alignment.center,
-                    child: Icon(
-                      Icons.close,
-                      size: 14,
-                      color: hovered ? ZColors.red : ZColors.textMuted,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        process.name,
+                        overflow: TextOverflow.ellipsis,
+                        style: ZText.body.copyWith(
+                          color: ZColors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: 64,
+                child: Text(
+                  '${process.cpuPercent.toStringAsFixed(1)}%',
+                  textAlign: TextAlign.right,
+                  style: ZText.mono(
+                    size: 11,
+                    weight: FontWeight.w600,
+                  ).copyWith(color: ZColors.usageColor(process.cpuPercent)),
+                ),
+              ),
+              if (showMemory)
+                SizedBox(
+                  width: 84,
+                  child: Text(
+                    '${process.memoryMb.toStringAsFixed(1)} MB',
+                    textAlign: TextAlign.right,
+                    style: ZText.mono(
+                      size: 11,
+                      weight: FontWeight.w500,
+                    ).copyWith(color: ZColors.textTertiary),
+                  ),
+                ),
+              if (showStatus)
+                SizedBox(
+                  width: 72,
+                  child: Center(child: _StatusPill(status: process.status)),
+                ),
+              SizedBox(
+                width: 44,
+                child: Center(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: onKill,
+                      borderRadius: ZRadii.inner,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          borderRadius: ZRadii.inner,
+                          color: hovered
+                              ? ZColors.red.withValues(alpha: 0.12)
+                              : Colors.transparent,
+                          border: Border.all(
+                            color: hovered
+                                ? ZColors.red.withValues(alpha: 0.3)
+                                : Colors.transparent,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Icon(
+                          Icons.close,
+                          size: 14,
+                          color: hovered ? ZColors.red : ZColors.textMuted,
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
-    );
-  }
-}
-
-class _CpuCell extends StatelessWidget {
-  final double percent;
-  const _CpuCell({required this.percent});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = ZColors.usageColor(percent);
-    return Row(
-      children: [
-        Expanded(
-          child: LayoutBuilder(
-            builder: (ctx, c) {
-              return Container(
-                height: 4,
-                decoration: BoxDecoration(
-                  color: ZColors.border.withValues(alpha: 0.4),
-                  borderRadius: ZRadii.pill,
-                ),
-                child: TweenAnimationBuilder<double>(
-                  tween: Tween<double>(
-                    begin: percent / 100,
-                    end: percent / 100,
-                  ),
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, v, _) {
-                    return FractionallySizedBox(
-                      widthFactor: v.clamp(0.0, 1.0),
-                      alignment: Alignment.centerLeft,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: ZRadii.pill,
-                          color: color,
-                          boxShadow: ZShadows.hairlineGlow(color),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 44,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween<double>(begin: percent, end: percent),
-            duration: const Duration(milliseconds: 500),
-            curve: Curves.easeOutCubic,
-            builder: (context, v, _) {
-              return Text(
-                '${v.toStringAsFixed(1)}%',
-                textAlign: TextAlign.right,
-                style: ZText.mono(
-                  size: 11,
-                  weight: FontWeight.w600,
-                ).copyWith(color: color),
-              );
-            },
-          ),
-        ),
-      ],
     );
   }
 }
