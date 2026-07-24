@@ -19,6 +19,7 @@ class WebSocketService extends ChangeNotifier {
   String _connectionStatus = 'disconnected';
   String? _agentError;
   int _connectAttempts = 0;
+  bool _receivedFirstMessage = false;
   final ValueNotifier<SystemMetrics?> metricsNotifier = ValueNotifier(null);
 
   int _nextRequestId = 1;
@@ -77,19 +78,65 @@ class WebSocketService extends ChangeNotifier {
 
   void connect() {
     if (_agentError != null) return;
-
     _reconnectTimer?.cancel();
     _connectionStatus = 'connecting';
     notifyListeners();
+    _waitForRuntimeAndConnect();
+  }
 
+  Future<Map<String, dynamic>?> _readRuntimeFile() async {
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    if (localAppData == null) return null;
+
+    final file = File('$localAppData\\Zabmin\\runtime.json');
     try {
-      _channel = WebSocketChannel.connect(Uri.parse('ws://localhost:8765'));
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        return jsonDecode(content) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _waitForRuntimeAndConnect() async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+
+    Map<String, dynamic>? runtimeData;
+    while (DateTime.now().isBefore(deadline)) {
+      runtimeData = await _readRuntimeFile();
+      if (runtimeData != null) break;
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    if (runtimeData == null) {
+      final statusError = _checkAgentStatusFile();
+      _agentError = statusError ?? 'Agent failed to start within 5 seconds';
+      notifyListeners();
+      return;
+    }
+
+    final port = runtimeData['port'] as int;
+    final token = runtimeData['token'] as String;
+    _doConnect(port, token);
+  }
+
+  void _doConnect(int port, String token) {
+    try {
+      final uri = Uri(
+        scheme: 'ws',
+        host: '127.0.0.1',
+        port: port,
+        path: '/',
+        queryParameters: {'token': token},
+      );
+      _channel = WebSocketChannel.connect(uri);
 
       _subscription = _channel!.stream.listen(
         (dynamic data) {
           _connectionStatus = 'connected';
           _connectAttempts = 0;
           _agentError = null;
+          _receivedFirstMessage = true;
           try {
             final parsed = jsonDecode(data as String) as Map<String, dynamic>;
             final msgType = parsed['type'] as String?;
@@ -308,12 +355,30 @@ class WebSocketService extends ChangeNotifier {
 
   void _handleDisconnect() {
     _connectionStatus = 'disconnected';
+
+    final closeCode = _channel?.closeCode;
+
     _subscription?.cancel();
     _subscription = null;
     _channel?.sink.close();
     _channel = null;
     _failAllPending();
     notifyListeners();
+
+    if (closeCode == 4401) {
+      _agentError =
+          'Connection rejected: invalid or missing authentication token.';
+      notifyListeners();
+      return;
+    }
+
+    if (!_receivedFirstMessage && closeCode == null) {
+      _agentError =
+          'Agent connection closed before any data was received. '
+          'The agent may have crashed or rejected the connection.';
+      notifyListeners();
+      return;
+    }
 
     _connectAttempts++;
     if (_connectAttempts >= _kMaxRetriesBeforeCheck) {

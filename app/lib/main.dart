@@ -22,6 +22,17 @@ import 'widgets/export_dialog.dart';
 
 Future<void> _startAgent() async {
   try {
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    if (localAppData != null) {
+      try {
+        final staleRuntime = File('$localAppData\\Zabmin\\runtime.json');
+        if (await staleRuntime.exists()) {
+          await staleRuntime.delete();
+          stdout.writeln('[Zabmin] Deleted stale runtime.json');
+        }
+      } catch (_) {}
+    }
+
     final appDir = Directory(Platform.script.resolve('.').toFilePath());
 
     String? searchPath = appDir.path;
@@ -272,6 +283,19 @@ class _AppShellState extends State<AppShell> with WindowListener, TrayListener {
       if (await pidFile.exists()) {
         final content = (await pidFile.readAsString()).trim();
         pid = int.tryParse(content);
+      }
+      if (pid == null) {
+        final localAppData = Platform.environment['LOCALAPPDATA'];
+        if (localAppData != null) {
+          final runtimeFile = File('$localAppData\\Zabmin\\runtime.json');
+          if (await runtimeFile.exists()) {
+            try {
+              final data = jsonDecode(await runtimeFile.readAsString())
+                  as Map<String, dynamic>;
+              pid = data['pid'] as int?;
+            } catch (_) {}
+          }
+        }
       }
 
       if (pid != null) {

@@ -25,15 +25,18 @@ A local system monitoring dashboard for Windows, built with **Flutter** and **Py
 Zabmin (two-process Windows desktop app)
 
   Flutter App (zabmin.exe)
-  ├── WebSocketService — connects to agent via ws://localhost:8765
+  ├── WebSocketService — connects to agent via ws://127.0.0.1:<dynamic-port>/?token=<session-token>
   ├── AlertsService — monitors thresholds and fires alerts
+  ├── Reads %LOCALAPPDATA%\Zabmin\runtime.json to discover agent port and session token
   └── Dashboard — charts, cards, process table, sidebar navigation
           │
-          │ WebSocket (localhost:8765)
+          │ WebSocket (127.0.0.1, OS-assigned port, token required)
           ▼
   Python Agent (subprocess, auto-started by app)
   ├── Windows Performance Counters — CPU & RAM (matches Task Manager)
   ├── psutil collectors — Disk, Network, Processes
+  ├── Binds to 127.0.0.1 (loopback only) with OS-assigned port
+  ├── Requires per-session token from ?token= query parameter
   └── Broadcasts JSON metrics every 1 second
 ```
 

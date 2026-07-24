@@ -1,15 +1,19 @@
 import asyncio
 import json
 import os
+import secrets
 import time
 import logging
 import logging.handlers
 import threading
+from urllib.parse import parse_qs, urlparse
+
 import psutil
 import websockets
 
 import cpu_state
 import database
+import runtime
 from collectors.cpu import collect as collect_cpu
 from collectors.memory import collect as collect_memory
 from collectors.disk import collect as collect_disk
@@ -32,9 +36,7 @@ os.makedirs(_logs_dir, exist_ok=True)
 _file_handler = logging.handlers.RotatingFileHandler(
     os.path.join(_logs_dir, "agent.log"), maxBytes=5 * 1024 * 1024, backupCount=3
 )
-_file_handler.setFormatter(logging.Formatter(
-    "%(asctime)s [%(levelname)s] %(message)s"
-))
+_file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 logging.getLogger().addHandler(_file_handler)
 
 
@@ -56,8 +58,41 @@ def _clear_status():
     except OSError:
         pass
 
+
+def get_websocket_request_path(websocket) -> str | None:
+    """Safely extract the request path from a websockets ServerConnection.
+
+    Returns None if the request is not yet available (should not happen
+    once the handler is called, but guard against it anyway).
+    """
+    if websocket.request is None:
+        return None
+    return websocket.request.path
+
+
+def extract_token_from_request_path(request_path: str) -> str | None:
+    """Extract the token query parameter from a WebSocket request path.
+
+    Returns None if the parameter is missing or the path is malformed.
+    """
+    params = parse_qs(urlparse(request_path).query)
+    return params.get("token", [None])[0]
+
+
+def token_is_valid(token: str | None) -> bool:
+    """Constant-time comparison of the provided token against the session token.
+
+    Returns True only if token matches _SESSION_TOKEN.
+    """
+    if token is None:
+        return False
+    return secrets.compare_digest(token, _SESSION_TOKEN)
+
+
 connected_clients = set()
 _shutdown_event = asyncio.Event()
+
+_SESSION_TOKEN: str = runtime.generate_token()
 
 # TEMP: Day 1 baseline measurement, remove or replace with agent/collector_runner.py timing framework in Day 6
 _collector_timing_counter = 0
@@ -98,7 +133,6 @@ def _run_with_com(fn):
 COLLECTOR_TIMEOUT = 10.0
 
 
-
 async def _run_in_thread(fn, label, with_com=False, timeout=COLLECTOR_TIMEOUT):
     """Run a collector in a thread pool, optionally with COM init.
 
@@ -108,9 +142,10 @@ async def _run_in_thread(fn, label, with_com=False, timeout=COLLECTOR_TIMEOUT):
     try:
         t0 = time.monotonic()
         result = await asyncio.wait_for(
-            asyncio.to_thread(wrapped), timeout=timeout,
+            asyncio.to_thread(wrapped),
+            timeout=timeout,
         )
-        logger.debug(f"Collector {label} OK in {time.monotonic()-t0:.1f}s")
+        logger.debug(f"Collector {label} OK in {time.monotonic() - t0:.1f}s")
         return result
     except asyncio.TimeoutError:
         logger.warning(f"Collector {label} timed out (>{timeout}s)")
@@ -141,7 +176,13 @@ async def gather_metrics():
     battery_task = _timed("battery", _run_in_thread(collect_battery, "battery"))
 
     cpu, mem, disk, net, procs, gpu, battery = await asyncio.gather(
-        cpu_task, mem_task, disk_task, net_task, procs_task, gpu_task, battery_task,
+        cpu_task,
+        mem_task,
+        disk_task,
+        net_task,
+        procs_task,
+        gpu_task,
+        battery_task,
     )
 
     _collector_timing_counter += 1
@@ -159,10 +200,39 @@ async def gather_metrics():
     payload = {
         "version": 3,
         "timestamp": int(time.time()),
-        "cpu": cpu or {"percent_total": 0.0, "percent_per_core": [], "freq_mhz": 0, "core_count": 0, "thread_count": 0, "temperature_c": None, "throttled": False},
-        "memory": mem or {"total_gb": 0.0, "used_gb": 0.0, "percent": 0.0, "available_gb": 0.0, "cached_gb": 0.0},
-        "disk": disk or {"total_gb": 0.0, "used_gb": 0.0, "percent": 0.0, "read_mb_s": 0.0, "write_mb_s": 0.0},
-        "network": net or {"sent_mb_s": 0.0, "recv_mb_s": 0.0, "total_sent_gb": 0.0, "total_recv_gb": 0.0},
+        "cpu": cpu
+        or {
+            "percent_total": 0.0,
+            "percent_per_core": [],
+            "freq_mhz": 0,
+            "core_count": 0,
+            "thread_count": 0,
+            "temperature_c": None,
+            "throttled": False,
+        },
+        "memory": mem
+        or {
+            "total_gb": 0.0,
+            "used_gb": 0.0,
+            "percent": 0.0,
+            "available_gb": 0.0,
+            "cached_gb": 0.0,
+        },
+        "disk": disk
+        or {
+            "total_gb": 0.0,
+            "used_gb": 0.0,
+            "percent": 0.0,
+            "read_mb_s": 0.0,
+            "write_mb_s": 0.0,
+        },
+        "network": net
+        or {
+            "sent_mb_s": 0.0,
+            "recv_mb_s": 0.0,
+            "total_sent_gb": 0.0,
+            "total_recv_gb": 0.0,
+        },
         "processes": procs or [],
         "gpu": gpu or [],
     }
@@ -172,6 +242,15 @@ async def gather_metrics():
 
 
 async def handler(websocket):
+    request_path = get_websocket_request_path(websocket)
+    if request_path is None:
+        await websocket.close(code=4401, reason="unauthorized")
+        return
+    token = extract_token_from_request_path(request_path)
+    if not token_is_valid(token):
+        await websocket.close(code=4401, reason="unauthorized")
+        return
+
     connected_clients.add(websocket)
     logger.info(f"Client connected. Total: {len(connected_clients)}")
     try:
@@ -268,8 +347,7 @@ async def handler(websocket):
                                 }
                             )
                         )
-                    except (psutil.NoSuchProcess, psutil.AccessDenied,
-                            ValueError) as e:
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError) as e:
                         await websocket.send(
                             json.dumps(
                                 {
@@ -369,7 +447,6 @@ async def broadcast_loop():
 
 
 async def main():
-    logger.info("Starting Zabmin agent on ws://localhost:8765")
     _write_pid_file()
     try:
         perf_thread = threading.Thread(target=cpu_state.perf_monitor_loop, daemon=True)
@@ -377,27 +454,36 @@ async def main():
         logger.info("Performance counter thread started")
 
         try:
-            server = await websockets.serve(handler, "localhost", 8765)
+            server = await websockets.serve(handler, "127.0.0.1", 0)
         except OSError as e:
-            errno = getattr(e, "winerror", None) or getattr(e, "errno", None)
-            if errno == 10048:
-                reason = "Port 8765 is already in use. Another agent may be running."
-                logger.error(reason)
-            else:
-                reason = f"Failed to bind to port 8765: {e}"
-                logger.error(reason)
+            reason = f"Failed to bind to 127.0.0.1: {e}"
+            logger.error(reason)
             _write_status(False, reason)
             return
         except Exception as e:
-            err_str = str(e).lower()
-            if "10048" in err_str or "socket address" in err_str:
-                reason = "Port 8765 is already in use. Another agent may be running."
-                logger.error(reason)
-            else:
-                reason = f"Failed to start server: {e}"
-                logger.error(reason)
+            reason = f"Failed to start server: {e}"
+            logger.error(reason)
             _write_status(False, reason)
             return
+
+        port: int | None = None
+        if server.sockets:
+            port = server.sockets[0].getsockname()[1]
+        if port is None:
+            reason = "Server started but no socket is bound"
+            logger.error(reason)
+            _write_status(False, reason)
+            server.close()
+            return
+
+        try:
+            runtime.write_runtime(os.getpid(), port, _SESSION_TOKEN)
+        except RuntimeError as e:
+            logger.error(str(e))
+            _write_status(False, str(e))
+            server.close()
+            return
+        logger.info(f"Listening on 127.0.0.1:{port}")
 
         _write_status(True)
         logger.info("Server started")
@@ -412,6 +498,7 @@ async def main():
             logger.info("Server closed")
     finally:
         _clear_status()
+        runtime.cleanup_runtime()
         try:
             os.remove(PID_FILE)
         except OSError:

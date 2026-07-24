@@ -16,7 +16,7 @@ Zabmin is a local, offline-first Windows system monitoring dashboard. It consist
 │  │          │  │ Badge/Panel  │  │                   │  │
 │  └──────────┘  └──────────────┘  └───────────────────┘  │
 └────────────────────────┬────────────────────────────────┘
-                         │ WebSocket (ws://localhost:8765)
+                         │ WebSocket (ws://127.0.0.1:<OS-port>/?token=<session-token>)
                          │ JSON every 1 second
                          ▼
 ┌─────────────────────────────────────────────────────────┐
@@ -81,6 +81,18 @@ psutil.cpu_percent(interval=1) [thread]
 - **Warmup calls**: CPU and process collectors call `cpu_percent()` once at import time to initialize psutil's internal state, avoiding the first-call-zero problem.
 - **SQLite every 5 seconds**: The database table stores one row per 5-second interval to keep the database small while maintaining sufficient granularity for history charts.
 
+### WebSocket Security
+
+The agent uses a session-token authentication scheme:
+
+1. **Bind**: `websockets.serve(handler, "127.0.0.1", 0)` — loopback only, OS-assigned port
+2. **Token**: Generated at startup via `secrets.token_urlsafe(32)`, never logged or re-read from disk
+3. **Runtime file**: Written to `%LOCALAPPDATA%\Zabmin\runtime.json` atomically (temp file + fsync + rename)
+   ```json
+   {"pid": 1234, "port": 56789, "token": "abc...", "started_at": 1718000000}
+   ```
+4. **Validation**: Every WebSocket connection is checked for `?token=` query param. Missing or wrong token → closed with code 4401 (unauthorized). Comparison uses `secrets.compare_digest` (constant-time).
+
 ### WebSocket Protocol
 
 **Server → Client (broadcast, every 1 second):**
@@ -125,12 +137,14 @@ ZabminApp
 
 ### WebSocketService
 
-- Connects to `ws://localhost:8765`
+- Discovers the agent by polling `%LOCALAPPDATA%\Zabmin\runtime.json` every 100ms (5s timeout)
+- Connects to `ws://127.0.0.1:<port>/?token=<token>` using `Uri.queryParameters`
 - Parses incoming JSON into `SystemMetrics` objects
 - Maintains a rolling history of the last 60 entries for charts
 - Exposes a `ValueNotifier<SystemMetrics?>` (`metricsNotifier`) for the alerts service to observe
-- Auto-reconnects every 3 seconds on disconnect
+- Auto-reconnects every 3 seconds on disconnect (but NOT after closeCode 4401 / unauthorized)
 - Connection status: `connecting` / `connected` / `disconnected`
+- Auth errors (4401) and rapid-empty disconnects surface as clear `agentError` messages
 
 ### AlertsService
 
@@ -150,7 +164,7 @@ Listens to `WebSocketService.metricsNotifier` and evaluates rules on each new re
 
 ### Process Launch
 
-On app startup, `main.dart` launches the Python agent as a subprocess using `Process.start`. The agent script path is resolved relative to the Dart script location. On window close, the subprocess is killed.
+On app startup, `main.dart` deletes any stale `%LOCALAPPDATA%\Zabmin\runtime.json` (from a previous crashed/killed agent), then launches the Python agent as a subprocess using `Process.start`. The agent script path is resolved relative to the Dart script location. The agent writes a fresh `runtime.json` with the dynamically-assigned port and session token. The Flutter WebSocketService polls for this file and connects once it appears. On window close, the subprocess is killed.
 
 ## Color Palette
 
