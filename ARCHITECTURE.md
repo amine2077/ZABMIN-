@@ -93,6 +93,38 @@ The agent uses a session-token authentication scheme:
    ```
 4. **Validation**: Every WebSocket connection is checked for `?token=` query param. Missing or wrong token → closed with code 4401 (unauthorized). Comparison uses `secrets.compare_digest` (constant-time).
 
+### WebSocket Message Validation
+
+All incoming WebSocket messages go through a three-layer validation pipeline:
+
+1. **Server-level limits** — `max_size=65536` (64 KB max message), `max_queue=32` (unbounded queue protection), `ping_interval=20`, `ping_timeout=20` (connection health)
+2. **Host/Origin check** — Host header must start with `127.0.0.1:` or `localhost:`, Origin header must be local or absent (native Flutter desktop may not send Origin). Invalid → closed with code 4403 (forbidden)
+3. **JSON structure validation** — Payload must parse as JSON, must be a dict/object, must contain a string `type` field. Malformed → closed with code 4400 (invalid_message)
+4. **Message field validation** — Each known message type requires specific fields with correct types:
+   - `kill_process`: int pid (>0), int request_id (1..2³¹-1)
+   - `set_priority`: int pid, int priority (one of `IDLE`/`BELOW_NORMAL`/`NORMAL`/`ABOVE_NORMAL`/`HIGH` priority class, REALTIME rejected), int request_id
+   - `get_process_connections`: int pid, int request_id
+   - `get_priority`: int pid, int request_id
+   - `get_history`: int duration_minutes (1..10080), int request_id
+   - `shutdown`: no required fields
+5. **Rate limiting** — Sliding window per action (60s window):
+   - `kill_process`: 5/60s
+   - `set_priority`: 10/60s
+   - `get_process_connections`: 10/60s
+   - `get_priority`: 20/60s
+   - `get_history`: 20/60s
+   - `shutdown`: 3/60s
+   - Rate-limited commands return a safe error response (e.g. `kill_result` with `success: false, error: "rate_limited"`). Rate-limited shutdowns are silently ignored.
+6. **Unknown message types** — Ignored with a minimal debug log. The connection is not closed.
+
+### WebSocket Close Codes
+
+| Code | Reason | When |
+|------|--------|------|
+| 4400 | invalid_message | Malformed JSON, non-object, missing or non-string type field |
+| 4401 | unauthorized | Missing or incorrect session token |
+| 4403 | forbidden | Invalid Host or Origin header |
+
 ### WebSocket Protocol
 
 **Server → Client (broadcast, every 1 second):**
@@ -110,13 +142,28 @@ The agent uses a session-token authentication scheme:
 
 **Client → Server:**
 ```json
-{"type": "get_history", "duration_minutes": 60}
+{"type": "get_history", "duration_minutes": 60, "request_id": 1}
+{"type": "kill_process", "pid": 1234, "request_id": 2}
 {"type": "shutdown"}
+{"type": "get_process_connections", "pid": 1234, "request_id": 3}
+{"type": "set_priority", "pid": 1234, "priority": 128, "request_id": 4}
+{"type": "get_priority", "pid": 1234, "request_id": 5}
 ```
 
 **Server → Client (response):**
 ```json
-{"type": "history", "data": [{"id": 1, "timestamp": ..., "cpu_percent": ..., ...}]}
+{"type": "history", "request_id": 1, "data": [...]}
+{"type": "kill_result", "pid": 1234, "request_id": 2, "success": true}
+{"type": "process_connections", "pid": 1234, "request_id": 3, "connections": [...]}
+{"type": "priority_result", "pid": 1234, "request_id": 4, "success": true, "priority": 128}
+{"type": "priority_info", "pid": 1234, "request_id": 5, "priority": 32}
+```
+
+Error responses include `success: false` (for kill/priority commands) or an `error` field on all response types:
+```json
+{"type": "kill_result", "pid": 1234, "request_id": 2, "success": false, "error": "rate_limited"}
+{"type": "history", "request_id": 1, "data": [], "error": "invalid_duration"}
+{"type": "process_connections", "pid": 1234, "request_id": 3, "connections": [], "error": "invalid_pid"}
 ```
 
 ## Flutter App
@@ -139,7 +186,9 @@ ZabminApp
 
 - Discovers the agent by polling `%LOCALAPPDATA%\Zabmin\runtime.json` every 100ms (5s timeout)
 - Connects to `ws://127.0.0.1:<port>/?token=<token>` using `Uri.queryParameters`
-- Parses incoming JSON into `SystemMetrics` objects
+- Parses incoming JSON into `SystemMetrics` objects for untyped broadcasts
+- Recognizes typed responses (`history`, `process_connections`, `priority_info`, `priority_result`, `kill_result`) and dispatches them to pending request completers
+- Ignores unknown typed messages instead of attempting to parse them as metrics
 - Maintains a rolling history of the last 60 entries for charts
 - Exposes a `ValueNotifier<SystemMetrics?>` (`metricsNotifier`) for the alerts service to observe
 - Auto-reconnects every 3 seconds on disconnect (but NOT after closeCode 4401 / unauthorized)

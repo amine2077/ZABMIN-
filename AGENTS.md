@@ -44,3 +44,9 @@ python test_agent.py
 ## Platform
 
 Windows-only (10/11, x64). Agent uses Windows Performance Counters via `ctypes.windll.pdh`. WebSocket server binds to `localhost:8765`.
+
+## GStack Decision (2026-07-24)
+
+Not installed. All gstack skills (review, spec, investigate, document-release, diagram) depend on the shared `bin/` directory (~70 binaries), `scripts/`, `docs/`, `ETHOS.md`, and cross-references to other skills — not portable standalone. Full `./setup --host opencode` is the only clean path. Revisit if multi-repo need arises.
+
+Built instead: `.opencode/skills/doc-audit/SKILL.md` — a zero-dep skill that audits README/ARCHITECTURE/AGENTS.md against the current diff, auto-fixes obvious mismatches, asks before judgment calls. Triggers automatically on feature completion or before commit/release. Also invoke via "run doc-audit" / "check if the docs are stale".

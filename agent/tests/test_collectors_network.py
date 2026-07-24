@@ -1,4 +1,5 @@
 """Test network collector — verifies delta-based I/O speed calculation."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -57,9 +58,7 @@ def test_second_call_computes_delta():
             assert result["recv_mb_s"] == pytest.approx(
                 (recv_delta / 2.0) / 1024**2, rel=1e-3
             )
-            expected_total_sent_gb = round(
-                (700 * 1024**2) / (1024**3), 1
-            )
+            expected_total_sent_gb = round((700 * 1024**2) / (1024**3), 1)
             assert result["total_sent_gb"] == pytest.approx(
                 expected_total_sent_gb, rel=1e-3
             )

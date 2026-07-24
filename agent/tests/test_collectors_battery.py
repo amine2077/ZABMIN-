@@ -1,7 +1,6 @@
 from unittest.mock import patch
 
 
-
 class FakeBattery:
     def __init__(self, percent, power_plugged, secsleft):
         self.percent = percent

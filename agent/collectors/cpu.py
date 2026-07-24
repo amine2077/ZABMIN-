@@ -82,7 +82,7 @@ def collect():
         freq_mhz = round(freq.current) if freq else 0
         t1 = time.monotonic()
         if t1 - t0 > 0.5:
-            logger.warning(f"CPU freq took {t1-t0:.2f}s")
+            logger.warning(f"CPU freq took {t1 - t0:.2f}s")
 
         global _temp_cache, _temp_cache_ts
         now = time.monotonic()

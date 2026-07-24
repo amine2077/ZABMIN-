@@ -14,6 +14,7 @@ def _get_ram_speed():
     _speed_queried = True
     try:
         import wmi
+
         c = wmi.WMI()
         speeds = []
         for stick in c.Win32_PhysicalMemory():

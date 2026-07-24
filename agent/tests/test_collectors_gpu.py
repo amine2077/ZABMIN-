@@ -1,4 +1,5 @@
 """Test GPU collector — NVML/WMI/DXGI multi-source merge."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest

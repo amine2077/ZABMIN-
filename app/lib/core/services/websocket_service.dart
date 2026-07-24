@@ -187,6 +187,9 @@ class WebSocketService extends ChangeNotifier {
               return;
             }
 
+            // Unknown typed message — ignore, don't try to parse as metrics
+            if (msgType != null) return;
+
             final metrics = SystemMetrics.fromJson(parsed);
             assert(
               metrics.version == kZabminProtocolVersion,

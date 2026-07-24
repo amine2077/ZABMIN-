@@ -13,6 +13,8 @@ import websockets
 
 import cpu_state
 import database
+import message_validation
+import rate_limit
 import runtime
 from collectors.cpu import collect as collect_cpu
 from collectors.memory import collect as collect_memory
@@ -89,10 +91,99 @@ def token_is_valid(token: str | None) -> bool:
     return secrets.compare_digest(token, _SESSION_TOKEN)
 
 
+def _check_origin(websocket) -> tuple[bool, int | None, str | None]:
+    """Check Host and Origin headers for extra hardening.
+
+    Returns (ok, close_code, reason).
+    """
+    try:
+        headers = websocket.request.headers
+    except Exception:
+        return True, None, None
+
+    host = headers.get("host")
+    if host is not None:
+        if isinstance(host, bytes):
+            host = host.decode()
+        if not host.startswith("127.0.0.1:") and not host.startswith("localhost:"):
+            return False, 4403, "forbidden"
+
+    origin = headers.get("origin")
+    if origin is not None:
+        if isinstance(origin, bytes):
+            origin = origin.decode()
+        allowed = (
+            origin in ("http://localhost", "http://127.0.0.1", "file://")
+            or origin.startswith("http://localhost:")
+            or origin.startswith("http://127.0.0.1:")
+        )
+        if not allowed:
+            return False, 4403, "forbidden"
+
+    return True, None, None
+
+
+def _get_safe_error_response(msg_type: str, msg: dict, error: str) -> dict | None:
+    """Return a safe error response for a failed message, or None if no response."""
+    request_id = msg.get("request_id")
+
+    if msg_type == "kill_process":
+        return {
+            "type": "kill_result",
+            "pid": msg.get("pid"),
+            "request_id": request_id,
+            "success": False,
+            "error": error,
+        }
+    if msg_type == "set_priority":
+        return {
+            "type": "priority_result",
+            "pid": msg.get("pid"),
+            "request_id": request_id,
+            "success": False,
+            "error": error,
+        }
+    if msg_type == "get_process_connections":
+        return {
+            "type": "process_connections",
+            "pid": msg.get("pid"),
+            "request_id": request_id,
+            "connections": [],
+            "error": error,
+        }
+    if msg_type == "get_priority":
+        return {
+            "type": "priority_info",
+            "pid": msg.get("pid"),
+            "request_id": request_id,
+            "priority": None,
+            "error": error,
+        }
+    if msg_type == "get_history":
+        return {
+            "type": "history",
+            "request_id": request_id,
+            "data": [],
+            "error": error,
+        }
+    return None
+
+
 connected_clients = set()
 _shutdown_event = asyncio.Event()
 
 _SESSION_TOKEN: str = runtime.generate_token()
+
+_RATE_LIMITER = rate_limit.RateLimiter(
+    limits={
+        "kill_process": 5,
+        "set_priority": 10,
+        "get_process_connections": 10,
+        "get_priority": 20,
+        "get_history": 20,
+        "shutdown": 3,
+    }
+)
 
 # TEMP: Day 1 baseline measurement, remove or replace with agent/collector_runner.py timing framework in Day 6
 _collector_timing_counter = 0
@@ -251,166 +342,201 @@ async def handler(websocket):
         await websocket.close(code=4401, reason="unauthorized")
         return
 
+    origin_ok, close_code, close_reason = _check_origin(websocket)
+    if not origin_ok:
+        await websocket.close(code=close_code, reason=close_reason)
+        return
+
     connected_clients.add(websocket)
     logger.info(f"Client connected. Total: {len(connected_clients)}")
     try:
         async for raw_message in websocket:
             try:
                 msg = json.loads(raw_message)
-                msg_type = msg.get("type")
+            except json.JSONDecodeError:
+                await websocket.close(code=4400, reason="invalid_message")
+                continue
 
-                if msg_type == "kill_process":
-                    pid = msg.get("pid")
-                    request_id = msg.get("request_id")
-                    try:
-                        psutil.Process(pid).kill()
-                        await websocket.send(
-                            json.dumps(
-                                {
-                                    "type": "kill_result",
-                                    "pid": pid,
-                                    "request_id": request_id,
-                                    "success": True,
-                                }
-                            )
-                        )
-                    except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                        await websocket.send(
-                            json.dumps(
-                                {
-                                    "type": "kill_result",
-                                    "pid": pid,
-                                    "request_id": request_id,
-                                    "success": False,
-                                    "error": str(e),
-                                }
-                            )
-                        )
+            if not isinstance(msg, dict):
+                await websocket.close(code=4400, reason="invalid_message")
+                continue
 
-                elif msg_type == "get_process_connections":
-                    pid = msg.get("pid")
-                    request_id = msg.get("request_id")
-                    try:
-                        conns = psutil.Process(pid).net_connections()
-                        conn_list = []
-                        for c in conns:
-                            local = f"{c.laddr.ip}:{c.laddr.port}" if c.laddr else "—"
-                            remote = f"{c.raddr.ip}:{c.raddr.port}" if c.raddr else "—"
-                            proto = "UDP" if c.type == 2 else "TCP"
-                            conn_list.append(
-                                {
-                                    "local_addr": local,
-                                    "remote_addr": remote,
-                                    "status": c.status or "UNKNOWN",
-                                    "protocol": proto,
-                                }
-                            )
-                        await websocket.send(
-                            json.dumps(
-                                {
-                                    "type": "process_connections",
-                                    "pid": pid,
-                                    "request_id": request_id,
-                                    "connections": conn_list,
-                                }
-                            )
-                        )
-                    except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                        await websocket.send(
-                            json.dumps(
-                                {
-                                    "type": "process_connections",
-                                    "pid": pid,
-                                    "request_id": request_id,
-                                    "connections": [],
-                                    "error": str(e),
-                                }
-                            )
-                        )
+            msg_type = msg.get("type")
+            if not isinstance(msg_type, str):
+                await websocket.close(code=4400, reason="invalid_message")
+                continue
 
-                elif msg_type == "set_priority":
-                    pid = msg.get("pid")
-                    priority = msg.get("priority")
-                    request_id = msg.get("request_id")
-                    try:
-                        p = psutil.Process(pid)
-                        p.nice(priority)
-                        current = p.nice()
-                        await websocket.send(
-                            json.dumps(
-                                {
-                                    "type": "priority_result",
-                                    "pid": pid,
-                                    "request_id": request_id,
-                                    "success": True,
-                                    "priority": current,
-                                }
-                            )
-                        )
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError) as e:
-                        await websocket.send(
-                            json.dumps(
-                                {
-                                    "type": "priority_result",
-                                    "pid": pid,
-                                    "request_id": request_id,
-                                    "success": False,
-                                    "error": str(e),
-                                }
-                            )
-                        )
+            if not message_validation.is_known_type(msg_type):
+                logger.debug(f"Ignoring unknown message type: {msg_type}")
+                continue
 
-                elif msg_type == "get_priority":
-                    pid = msg.get("pid")
-                    request_id = msg.get("request_id")
-                    try:
-                        current = psutil.Process(pid).nice()
-                        await websocket.send(
-                            json.dumps(
-                                {
-                                    "type": "priority_info",
-                                    "pid": pid,
-                                    "request_id": request_id,
-                                    "priority": current,
-                                }
-                            )
-                        )
-                    except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                        await websocket.send(
-                            json.dumps(
-                                {
-                                    "type": "priority_info",
-                                    "pid": pid,
-                                    "request_id": request_id,
-                                    "priority": None,
-                                    "error": str(e),
-                                }
-                            )
-                        )
+            ok, error = message_validation.validate_message(msg)
+            if not ok:
+                error_response = _get_safe_error_response(msg_type, msg, error)
+                if error_response is not None:
+                    await websocket.send(json.dumps(error_response))
+                continue
 
-                elif msg_type == "get_history":
-                    minutes = msg.get("duration_minutes", 60)
-                    request_id = msg.get("request_id")
-                    rows = await asyncio.to_thread(database.get_history, minutes)
+            if not _RATE_LIMITER.allow(msg_type):
+                error_response = _get_safe_error_response(msg_type, msg, "rate_limited")
+                if error_response is not None:
+                    await websocket.send(json.dumps(error_response))
+                else:
+                    logger.warning(f"{msg_type} rate limited, ignoring")
+                continue
+
+            if msg_type == "kill_process":
+                pid = msg.get("pid")
+                request_id = msg.get("request_id")
+                try:
+                    psutil.Process(pid).kill()
                     await websocket.send(
                         json.dumps(
                             {
-                                "type": "history",
+                                "type": "kill_result",
+                                "pid": pid,
                                 "request_id": request_id,
-                                "data": rows,
+                                "success": True,
+                            }
+                        )
+                    )
+                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "kill_result",
+                                "pid": pid,
+                                "request_id": request_id,
+                                "success": False,
+                                "error": str(e),
                             }
                         )
                     )
 
-                elif msg_type == "shutdown":
-                    logger.info("Shutdown requested via WebSocket")
-                    _shutdown_event.set()
-                    break
+            elif msg_type == "get_process_connections":
+                pid = msg.get("pid")
+                request_id = msg.get("request_id")
+                try:
+                    conns = psutil.Process(pid).net_connections()
+                    conn_list = []
+                    for c in conns:
+                        local = f"{c.laddr.ip}:{c.laddr.port}" if c.laddr else "—"
+                        remote = f"{c.raddr.ip}:{c.raddr.port}" if c.raddr else "—"
+                        proto = "UDP" if c.type == 2 else "TCP"
+                        conn_list.append(
+                            {
+                                "local_addr": local,
+                                "remote_addr": remote,
+                                "status": c.status or "UNKNOWN",
+                                "protocol": proto,
+                            }
+                        )
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "process_connections",
+                                "pid": pid,
+                                "request_id": request_id,
+                                "connections": conn_list,
+                            }
+                        )
+                    )
+                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "process_connections",
+                                "pid": pid,
+                                "request_id": request_id,
+                                "connections": [],
+                                "error": str(e),
+                            }
+                        )
+                    )
 
-            except json.JSONDecodeError as e:
-                logger.debug(f"Invalid JSON from client: {e}")
-            except Exception as e:
-                logger.error(f"Error handling message: {e}")
+            elif msg_type == "set_priority":
+                pid = msg.get("pid")
+                priority = msg.get("priority")
+                request_id = msg.get("request_id")
+                try:
+                    p = psutil.Process(pid)
+                    p.nice(priority)
+                    current = p.nice()
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "priority_result",
+                                "pid": pid,
+                                "request_id": request_id,
+                                "success": True,
+                                "priority": current,
+                            }
+                        )
+                    )
+                except (
+                    psutil.NoSuchProcess,
+                    psutil.AccessDenied,
+                    ValueError,
+                ) as e:
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "priority_result",
+                                "pid": pid,
+                                "request_id": request_id,
+                                "success": False,
+                                "error": str(e),
+                            }
+                        )
+                    )
+
+            elif msg_type == "get_priority":
+                pid = msg.get("pid")
+                request_id = msg.get("request_id")
+                try:
+                    current = psutil.Process(pid).nice()
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "priority_info",
+                                "pid": pid,
+                                "request_id": request_id,
+                                "priority": current,
+                            }
+                        )
+                    )
+                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "priority_info",
+                                "pid": pid,
+                                "request_id": request_id,
+                                "priority": None,
+                                "error": str(e),
+                            }
+                        )
+                    )
+
+            elif msg_type == "get_history":
+                minutes = msg.get("duration_minutes")
+                request_id = msg.get("request_id")
+                rows = await asyncio.to_thread(database.get_history, minutes)
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "history",
+                            "request_id": request_id,
+                            "data": rows,
+                        }
+                    )
+                )
+
+            elif msg_type == "shutdown":
+                logger.info("Shutdown requested via WebSocket")
+                _shutdown_event.set()
+                break
+
     except websockets.ConnectionClosed:
         pass
     except Exception:
@@ -454,7 +580,15 @@ async def main():
         logger.info("Performance counter thread started")
 
         try:
-            server = await websockets.serve(handler, "127.0.0.1", 0)
+            server = await websockets.serve(
+                handler,
+                "127.0.0.1",
+                0,
+                max_size=65536,
+                max_queue=32,
+                ping_interval=20,
+                ping_timeout=20,
+            )
         except OSError as e:
             reason = f"Failed to bind to 127.0.0.1: {e}"
             logger.error(reason)

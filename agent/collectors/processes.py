@@ -1,7 +1,7 @@
 import psutil
 
 # Warmup call to initialize process cpu_percent values
-for p in psutil.process_iter(['pid']):
+for p in psutil.process_iter(["pid"]):
     try:
         p.cpu_percent(interval=None)
     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -36,15 +36,17 @@ def collect():
                 if info["memory_info"]:
                     mem_mb = round(info["memory_info"].rss / (1024**2), 1)
 
-                procs.append({
-                    "pid": info["pid"] or 0,
-                    "ppid": info["ppid"] or 0,
-                    "name": info["name"],
-                    "cpu_percent": cpu_percent,
-                    "memory_mb": mem_mb,
-                    "status": info["status"] or "unknown",
-                    "connections": 0,
-                })
+                procs.append(
+                    {
+                        "pid": info["pid"] or 0,
+                        "ppid": info["ppid"] or 0,
+                        "name": info["name"],
+                        "cpu_percent": cpu_percent,
+                        "memory_mb": mem_mb,
+                        "status": info["status"] or "unknown",
+                        "connections": 0,
+                    }
+                )
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
 

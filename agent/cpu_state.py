@@ -19,6 +19,7 @@ PDH_HQUERY = ctypes.c_void_p()
 PDH_HCOUNTER_CPU = ctypes.c_void_p()
 PDH_FMT_DOUBLE = 0x00000200
 
+
 class PDH_FMT_COUNTERVALUE_DOUBLE(ctypes.Structure):
     _fields_ = [
         ("CStatus", ctypes.c_long),
@@ -40,14 +41,22 @@ def _init_perf_counters():
 
 def _read_perf_counter(hcounter):
     value = PDH_FMT_COUNTERVALUE_DOUBLE()
-    status = PDH.PdhGetFormattedCounterValue(hcounter, PDH_FMT_DOUBLE, None, ctypes.byref(value))
+    status = PDH.PdhGetFormattedCounterValue(
+        hcounter, PDH_FMT_DOUBLE, None, ctypes.byref(value)
+    )
     if status == 0:
         return value.doubleValue
     return None
 
 
 def perf_monitor_loop():
-    global _cpu_percent_total, _cpu_percent_per_core, _ram_percent, _ram_used_gb, _ram_total_gb, _monitor_started
+    global \
+        _cpu_percent_total, \
+        _cpu_percent_per_core, \
+        _ram_percent, \
+        _ram_used_gb, \
+        _ram_total_gb, \
+        _monitor_started
     if _monitor_started:
         raise RuntimeError("perf_monitor_loop() already running in this process")
     _monitor_started = True
@@ -81,8 +90,8 @@ def perf_monitor_loop():
             vm = psutil.virtual_memory()
             ram_used = vm.total - vm.available
             ram_percent = round((ram_used / vm.total) * 100, 1) if vm.total > 0 else 0.0
-            ram_used_gb = round(ram_used / (1024 ** 3), 1)
-            ram_total_gb = round(vm.total / (1024 ** 3), 1)
+            ram_used_gb = round(ram_used / (1024**3), 1)
+            ram_total_gb = round(vm.total / (1024**3), 1)
         except Exception:
             ram_percent = 0.0
             ram_used_gb = 0.0
@@ -97,7 +106,12 @@ def perf_monitor_loop():
 
 
 def _perf_monitor_loop_fallback():
-    global _cpu_percent_total, _cpu_percent_per_core, _ram_percent, _ram_used_gb, _ram_total_gb
+    global \
+        _cpu_percent_total, \
+        _cpu_percent_per_core, \
+        _ram_percent, \
+        _ram_used_gb, \
+        _ram_total_gb
     psutil.cpu_percent(interval=None)
     psutil.cpu_percent(interval=None, percpu=True)
     while True:
@@ -109,9 +123,11 @@ def _perf_monitor_loop_fallback():
         with _state_lock:
             _cpu_percent_total = round(total, 1)
             _cpu_percent_per_core = [round(v, 1) for v in per_core]
-            _ram_percent = round((ram_used / vm.total) * 100, 1) if vm.total > 0 else 0.0
-            _ram_used_gb = round(ram_used / (1024 ** 3), 1)
-            _ram_total_gb = round(vm.total / (1024 ** 3), 1)
+            _ram_percent = (
+                round((ram_used / vm.total) * 100, 1) if vm.total > 0 else 0.0
+            )
+            _ram_used_gb = round(ram_used / (1024**3), 1)
+            _ram_total_gb = round(vm.total / (1024**3), 1)
 
 
 def read_state():

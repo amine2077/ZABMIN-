@@ -1,4 +1,5 @@
 """Test memory collector — verifies total-available formula, not psutil's used."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest

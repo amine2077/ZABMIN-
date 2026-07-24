@@ -1,4 +1,5 @@
 """Test disk collector — verifies partition enumeration + delta I/O speed."""
+
 from unittest.mock import patch
 
 import pytest
@@ -197,10 +198,6 @@ def test_aggregate_totals():
         from collectors.disk import collect
 
         result = collect()
-        assert result["total_gb"] == pytest.approx(
-            (256 + 512) / 1, rel=1e-3
-        )
-        assert result["used_gb"] == pytest.approx(
-            (128 + 256) / 1, rel=1e-3
-        )
+        assert result["total_gb"] == pytest.approx((256 + 512) / 1, rel=1e-3)
+        assert result["used_gb"] == pytest.approx((128 + 256) / 1, rel=1e-3)
         assert result["percent"] == pytest.approx(50.0, rel=1e-3)
