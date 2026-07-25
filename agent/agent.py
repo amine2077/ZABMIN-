@@ -1,22 +1,23 @@
 import asyncio
 import json
-import os
-import time
 import logging
 import logging.handlers
+import os
 import threading
+import time
+
 import psutil
 import websockets
 
 import cpu_state
 import database
+from collectors.battery import collect as collect_battery
 from collectors.cpu import collect as collect_cpu
-from collectors.memory import collect as collect_memory
 from collectors.disk import collect as collect_disk
+from collectors.gpu import collect as collect_gpu
+from collectors.memory import collect as collect_memory
 from collectors.network import collect as collect_network
 from collectors.processes import collect as collect_processes
-from collectors.gpu import collect as collect_gpu
-from collectors.battery import collect as collect_battery
 
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PID_FILE = os.path.join(AGENT_DIR, "agent.pid")
@@ -30,11 +31,13 @@ logger = logging.getLogger(__name__)
 _logs_dir = os.path.join(AGENT_DIR, "logs")
 os.makedirs(_logs_dir, exist_ok=True)
 _file_handler = logging.handlers.RotatingFileHandler(
-    os.path.join(_logs_dir, "agent.log"), maxBytes=5 * 1024 * 1024, backupCount=3
+    os.path.join(_logs_dir, "agent.log"),
+    maxBytes=5 * 1024 * 1024,
+    backupCount=3,
 )
-_file_handler.setFormatter(logging.Formatter(
-    "%(asctime)s [%(levelname)s] %(message)s"
-))
+_file_handler.setFormatter(
+    logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+)
 logging.getLogger().addHandler(_file_handler)
 
 
@@ -55,6 +58,7 @@ def _clear_status():
             os.remove(STATUS_FILE)
     except OSError:
         pass
+
 
 connected_clients = set()
 _shutdown_event = asyncio.Event()
@@ -95,7 +99,6 @@ def _run_with_com(fn):
 COLLECTOR_TIMEOUT = 10.0
 
 
-
 async def _run_in_thread(fn, label, with_com=False, timeout=COLLECTOR_TIMEOUT):
     """Run a collector in a thread pool, optionally with COM init.
 
@@ -105,7 +108,8 @@ async def _run_in_thread(fn, label, with_com=False, timeout=COLLECTOR_TIMEOUT):
     try:
         t0 = time.monotonic()
         result = await asyncio.wait_for(
-            asyncio.to_thread(wrapped), timeout=timeout,
+            asyncio.to_thread(wrapped),
+            timeout=timeout,
         )
         logger.debug(f"Collector {label} OK in {time.monotonic()-t0:.1f}s")
         return result
@@ -128,15 +132,50 @@ async def gather_metrics():
     battery_task = _run_in_thread(collect_battery, "battery")
 
     cpu, mem, disk, net, procs, gpu, battery = await asyncio.gather(
-        cpu_task, mem_task, disk_task, net_task, procs_task, gpu_task, battery_task,
+        cpu_task,
+        mem_task,
+        disk_task,
+        net_task,
+        procs_task,
+        gpu_task,
+        battery_task,
     )
     payload = {
         "version": 3,
         "timestamp": int(time.time()),
-        "cpu": cpu or {"percent_total": 0.0, "percent_per_core": [], "freq_mhz": 0, "core_count": 0, "thread_count": 0, "temperature_c": None, "throttled": False},
-        "memory": mem or {"total_gb": 0.0, "used_gb": 0.0, "percent": 0.0, "available_gb": 0.0, "cached_gb": 0.0},
-        "disk": disk or {"total_gb": 0.0, "used_gb": 0.0, "percent": 0.0, "read_mb_s": 0.0, "write_mb_s": 0.0},
-        "network": net or {"sent_mb_s": 0.0, "recv_mb_s": 0.0, "total_sent_gb": 0.0, "total_recv_gb": 0.0},
+        "cpu": cpu
+        or {
+            "percent_total": 0.0,
+            "percent_per_core": [],
+            "freq_mhz": 0,
+            "core_count": 0,
+            "thread_count": 0,
+            "temperature_c": None,
+            "throttled": False,
+        },
+        "memory": mem
+        or {
+            "total_gb": 0.0,
+            "used_gb": 0.0,
+            "percent": 0.0,
+            "available_gb": 0.0,
+            "cached_gb": 0.0,
+        },
+        "disk": disk
+        or {
+            "total_gb": 0.0,
+            "used_gb": 0.0,
+            "percent": 0.0,
+            "read_mb_s": 0.0,
+            "write_mb_s": 0.0,
+        },
+        "network": net
+        or {
+            "sent_mb_s": 0.0,
+            "recv_mb_s": 0.0,
+            "total_sent_gb": 0.0,
+            "total_recv_gb": 0.0,
+        },
         "processes": procs or [],
         "gpu": gpu or [],
     }
@@ -190,7 +229,9 @@ async def handler(websocket):
                         conn_list = []
                         for c in conns:
                             local = f"{c.laddr.ip}:{c.laddr.port}" if c.laddr else "—"
-                            remote = f"{c.raddr.ip}:{c.raddr.port}" if c.raddr else "—"
+                            remote = (
+                                f"{c.raddr.ip}:{c.raddr.port}" if c.raddr else "—"
+                            )
                             proto = "UDP" if c.type == 2 else "TCP"
                             conn_list.append(
                                 {
@@ -242,8 +283,7 @@ async def handler(websocket):
                                 }
                             )
                         )
-                    except (psutil.NoSuchProcess, psutil.AccessDenied,
-                            ValueError) as e:
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError) as e:
                         await websocket.send(
                             json.dumps(
                                 {
@@ -346,7 +386,9 @@ async def main():
     logger.info("Starting Zabmin agent on ws://localhost:8765")
     _write_pid_file()
     try:
-        perf_thread = threading.Thread(target=cpu_state.perf_monitor_loop, daemon=True)
+        perf_thread = threading.Thread(
+            target=cpu_state.perf_monitor_loop, daemon=True
+        )
         perf_thread.start()
         logger.info("Performance counter thread started")
 

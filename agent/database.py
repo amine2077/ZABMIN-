@@ -1,10 +1,10 @@
 """SQLite database for storing metrics history."""
 
-import sqlite3
-import os
-import time
-import threading
 import logging
+import os
+import sqlite3
+import threading
+import time
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,8 @@ def _get_conn():
 def init_db():
     """Create the metrics table if it doesn't exist."""
     conn = _get_conn()
-    conn.execute("""
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS metrics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp INTEGER NOT NULL,
@@ -42,7 +43,8 @@ def init_db():
             net_sent_mb_s REAL,
             net_recv_mb_s REAL
         )
-    """)
+    """
+    )
     conn.commit()
 
 

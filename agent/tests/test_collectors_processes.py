@@ -53,7 +53,9 @@ def test_cpu_percent_divided_by_core_count():
         elif name == "python.exe":
             assert p["cpu_percent"] == 5.0  # 40 / 8
         elif name == "notepad.exe":
-            assert p["cpu_percent"] == 1.2  # 10 / 8 → round(1.25, 1) = 1.2 (banker's rounding)
+            assert (
+                p["cpu_percent"] == 1.2
+            )  # 10 / 8 → round(1.25, 1) = 1.2 (banker's rounding)
 
 
 def test_sort_by_cpu_descending():

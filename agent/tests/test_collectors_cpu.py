@@ -94,6 +94,7 @@ def test_temperature_c_returns_none_when_no_wmi():
     from collectors.cpu import _cpu_temperature_c
 
     import builtins
+
     real_import = builtins.__import__
 
     def fake_import(name, *args, **kwargs):

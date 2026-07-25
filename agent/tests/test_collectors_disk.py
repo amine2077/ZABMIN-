@@ -174,8 +174,12 @@ def test_fallback_on_exception():
 
 def test_aggregate_totals():
     partitions = [
-        FakePartition(device="C:\\", mountpoint="C:\\", fstype="NTFS", opts="rw,fixed"),
-        FakePartition(device="D:\\", mountpoint="D:\\", fstype="NTFS", opts="rw,fixed"),
+        FakePartition(
+            device="C:\\", mountpoint="C:\\", fstype="NTFS", opts="rw,fixed"
+        ),
+        FakePartition(
+            device="D:\\", mountpoint="D:\\", fstype="NTFS", opts="rw,fixed"
+        ),
     ]
     c_usage = FakeDiskUsage(
         total=256 * 1024**3, used=128 * 1024**3, free=128 * 1024**3, percent=50.0
@@ -197,10 +201,6 @@ def test_aggregate_totals():
         from collectors.disk import collect
 
         result = collect()
-        assert result["total_gb"] == pytest.approx(
-            (256 + 512) / 1, rel=1e-3
-        )
-        assert result["used_gb"] == pytest.approx(
-            (128 + 256) / 1, rel=1e-3
-        )
+        assert result["total_gb"] == pytest.approx((256 + 512) / 1, rel=1e-3)
+        assert result["used_gb"] == pytest.approx((128 + 256) / 1, rel=1e-3)
         assert result["percent"] == pytest.approx(50.0, rel=1e-3)
