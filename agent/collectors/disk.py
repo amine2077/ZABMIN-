@@ -1,6 +1,7 @@
-import time
 import ctypes
 import ctypes.wintypes
+import time
+
 import psutil
 
 _prev_io = {}
@@ -94,9 +95,7 @@ def _is_real_partition(part):
         drive_type = _kernel32.GetDriveTypeW(part.mountpoint)
     except Exception:
         drive_type = 0
-    if drive_type in (0, 1, 5):
-        return False
-    return True
+    return drive_type not in (0, 1, 5)
 
 
 def collect():

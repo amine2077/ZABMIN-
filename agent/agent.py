@@ -1,11 +1,11 @@
 import asyncio
 import json
-import os
-import secrets
-import time
 import logging
 import logging.handlers
+import os
+import secrets
 import threading
+import time
 from urllib.parse import parse_qs, urlparse
 
 import psutil
@@ -16,13 +16,13 @@ import database
 import message_validation
 import rate_limit
 import runtime
+from collectors.battery import collect as collect_battery
 from collectors.cpu import collect as collect_cpu
-from collectors.memory import collect as collect_memory
 from collectors.disk import collect as collect_disk
+from collectors.gpu import collect as collect_gpu
+from collectors.memory import collect as collect_memory
 from collectors.network import collect as collect_network
 from collectors.processes import collect as collect_processes
-from collectors.gpu import collect as collect_gpu
-from collectors.battery import collect as collect_battery
 
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PID_FILE = os.path.join(AGENT_DIR, "agent.pid")
@@ -112,11 +112,11 @@ def _check_origin(websocket) -> tuple[bool, int | None, str | None]:
     if origin is not None:
         if isinstance(origin, bytes):
             origin = origin.decode()
-        allowed = (
-            origin in ("http://localhost", "http://127.0.0.1", "file://")
-            or origin.startswith("http://localhost:")
-            or origin.startswith("http://127.0.0.1:")
-        )
+        allowed = origin in (
+            "http://localhost",
+            "http://127.0.0.1",
+            "file://",
+        ) or origin.startswith(("http://localhost:", "http://127.0.0.1:"))
         if not allowed:
             return False, 4403, "forbidden"
 
