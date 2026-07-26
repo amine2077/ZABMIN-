@@ -1,6 +1,6 @@
-import time
-import logging
 import ctypes
+import logging
+import time
 from ctypes import wintypes
 
 logger = logging.getLogger(__name__)

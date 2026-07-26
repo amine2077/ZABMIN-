@@ -1,10 +1,10 @@
 """SQLite database for storing metrics history."""
 
-import sqlite3
-import os
-import time
-import threading
 import logging
+import os
+import sqlite3
+import threading
+import time
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)

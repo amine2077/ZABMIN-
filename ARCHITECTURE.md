@@ -114,8 +114,51 @@ All incoming WebSocket messages go through a three-layer validation pipeline:
    - `get_priority`: 20/60s
    - `get_history`: 20/60s
    - `shutdown`: 3/60s
-   - Rate-limited commands return a safe error response (e.g. `kill_result` with `success: false, error: "rate_limited"`). Rate-limited shutdowns are silently ignored.
+   - Rate-limited commands return a safe error response (e.g. `kill_result` with `success: false, error: "rate_limited"`) and are audited with `result=rate_limited`. Rate-limited shutdowns are audited and silently ignored.
 6. **Unknown message types** — Ignored with a minimal debug log. The connection is not closed.
+
+### Command Safety (process_policy.py)
+
+All privileged commands (kill_process, set_priority, get_priority, get_process_connections) are gated by server-side policy checks:
+
+1. **Protected PIDs** — PID 0 and PID 4 are always blocked with error `protected_process`
+2. **Protected process names** — System, Registry, smss.exe, csrss.exe, wininit.exe, services.exe, lsass.exe, winlogon.exe are blocked with error `protected_process` (case-insensitive, full-path aware)
+3. **Agent self-protection** — Any command targeting the agent's own PID is blocked with error `agent_process`
+4. **Missing processes** — psutil.NoSuchProcess and psutil.ZombieProcess map to error `process_not_found`
+5. **Access denied** — psutil.AccessDenied maps to error `access_denied`
+6. **Fail-closed** — If the process name cannot be read, the policy fails closed with `access_denied` or `internal_error`. Unknown exceptions during policy checking produce `internal_error`.
+7. **Unexpected exceptions** — Any unhandled psutil exception maps to `internal_error`. Raw Python exception text is never returned to the client.
+
+Policy checks happen after message validation and rate limiting but before the operation executes. The UI confirmation dialog is not a security boundary — server-side enforcement is.
+
+### Command Handler Helpers (agent.py)
+
+Each privileged command is handled by a pure sync helper function that returns a response dict:
+
+| Helper | Response type | Audit outcomes |
+|--------|--------------|----------------|
+| `_handle_kill_process(msg)` | `kill_result` | denied / success / failed |
+| `_handle_set_priority(msg)` | `priority_result` | denied / success / failed |
+| `_handle_get_priority(msg)` | `priority_info` | denied / success / failed |
+| `_handle_get_process_connections(msg)` | `process_connections` | denied / success / failed |
+
+All helpers include `pid`, `request_id`, and appropriate result fields in every response. Error responses use `_get_safe_error_response()` which preserves `pid` and `request_id` from the request message.
+
+### Audit Logging (audit.py)
+
+All privileged actions are recorded to `agent/logs/audit.log` (rotating, 1 MB max, 3 backups):
+
+| Field | Example |
+|-------|---------|
+| timestamp | `1718000000` |
+| action | `kill_process` / `set_priority` / `get_priority` / `get_process_connections` / `shutdown` |
+| pid | `1234` |
+| process_name | `chrome.exe` |
+| request_id | `7` |
+| result | `success` / `denied` / `failed` / `rate_limited` |
+| error | `protected_process` (omitted on success) |
+
+Audit logging never raises — failures are logged as warnings to the main agent logger.
 
 ### WebSocket Close Codes
 
@@ -162,9 +205,16 @@ All incoming WebSocket messages go through a three-layer validation pipeline:
 Error responses include `success: false` (for kill/priority commands) or an `error` field on all response types:
 ```json
 {"type": "kill_result", "pid": 1234, "request_id": 2, "success": false, "error": "rate_limited"}
+{"type": "kill_result", "pid": 1234, "request_id": 2, "success": false, "error": "protected_process"}
+{"type": "kill_result", "pid": 1234, "request_id": 2, "success": false, "error": "agent_process"}
+{"type": "kill_result", "pid": 1234, "request_id": 2, "success": false, "error": "process_not_found"}
+{"type": "kill_result", "pid": 1234, "request_id": 2, "success": false, "error": "access_denied"}
+{"type": "kill_result", "pid": 1234, "request_id": 2, "success": false, "error": "internal_error"}
 {"type": "history", "request_id": 1, "data": [], "error": "invalid_duration"}
 {"type": "process_connections", "pid": 1234, "request_id": 3, "connections": [], "error": "invalid_pid"}
 ```
+
+All error responses use safe error strings — raw Python exception text is never returned.
 
 ## Flutter App
 

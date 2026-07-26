@@ -27,7 +27,9 @@ class WebSocketService extends ChangeNotifier {
   final Map<int, Completer<List<Map<String, dynamic>>>> _pendingConnections =
       {};
   final Map<int, Completer<Map<String, dynamic>>> _pendingKillByPid = {};
+  final Map<int, int> _killPidToRid = {};
   final Map<int, Completer<Map<String, dynamic>>> _pendingPriority = {};
+  final Map<int, int> _priorityPidToRid = {};
 
   SystemMetrics? get latest => _latest;
   List<SystemMetrics> get history => List.unmodifiable(_history);
@@ -170,19 +172,37 @@ class WebSocketService extends ChangeNotifier {
             }
 
             if (msgType == 'priority_info' || msgType == 'priority_result') {
+              final rid = parsed['request_id'] as int?;
               final pid = parsed['pid'] as int?;
-              if (pid != null && _pendingPriority.containsKey(pid)) {
-                final c = _pendingPriority.remove(pid)!;
-                if (!c.isCompleted) c.complete(parsed);
+              Completer<Map<String, dynamic>>? c;
+              if (rid != null && _pendingPriority.containsKey(rid)) {
+                c = _pendingPriority.remove(rid);
+              } else if (pid != null && _priorityPidToRid.containsKey(pid)) {
+                final fallbackRid = _priorityPidToRid[pid];
+                if (fallbackRid != null) {
+                  c = _pendingPriority.remove(fallbackRid);
+                }
+              }
+              if (c != null && !c.isCompleted) {
+                c.complete(parsed);
               }
               return;
             }
 
             if (msgType == 'kill_result') {
+              final rid = parsed['request_id'] as int?;
               final pid = parsed['pid'] as int?;
-              if (pid != null && _pendingKillByPid.containsKey(pid)) {
-                final c = _pendingKillByPid.remove(pid)!;
-                if (!c.isCompleted) c.complete(parsed);
+              Completer<Map<String, dynamic>>? c;
+              if (rid != null && _pendingKillByPid.containsKey(rid)) {
+                c = _pendingKillByPid.remove(rid);
+              } else if (pid != null && _killPidToRid.containsKey(pid)) {
+                final fallbackRid = _killPidToRid[pid];
+                if (fallbackRid != null) {
+                  c = _pendingKillByPid.remove(fallbackRid);
+                }
+              }
+              if (c != null && !c.isCompleted) {
+                c.complete(parsed);
               }
               return;
             }
@@ -229,12 +249,14 @@ class WebSocketService extends ChangeNotifier {
   void killProcess(int pid) {
     final rid = _allocRequestId();
     final completer = Completer<Map<String, dynamic>>();
-    _pendingKillByPid[pid] = completer;
+    _pendingKillByPid[rid] = completer;
+    _killPidToRid[pid] = rid;
     sendMessage(
       jsonEncode({'type': 'kill_process', 'pid': pid, 'request_id': rid}),
     );
     Future.delayed(const Duration(seconds: 5), () {
-      final c = _pendingKillByPid.remove(pid);
+      final c = _pendingKillByPid.remove(rid);
+      _killPidToRid.remove(pid);
       if (c != null && !c.isCompleted) {
         c.complete({'success': false, 'error': 'Timeout'});
       }
@@ -242,9 +264,12 @@ class WebSocketService extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>> waitForKillResult(int pid) {
-    final completer = _pendingKillByPid[pid];
-    if (completer != null) {
-      return completer.future;
+    final rid = _killPidToRid[pid];
+    if (rid != null) {
+      final completer = _pendingKillByPid[rid];
+      if (completer != null) {
+        return completer.future;
+      }
     }
     return Future.value({'success': false, 'error': 'No pending kill'});
   }
@@ -292,7 +317,8 @@ class WebSocketService extends ChangeNotifier {
   void setPriority(int pid, int priority) {
     final rid = _allocRequestId();
     final completer = Completer<Map<String, dynamic>>();
-    _pendingPriority[pid] = completer;
+    _pendingPriority[rid] = completer;
+    _priorityPidToRid[pid] = rid;
     sendMessage(
       jsonEncode({
         'type': 'set_priority',
@@ -302,7 +328,8 @@ class WebSocketService extends ChangeNotifier {
       }),
     );
     Future.delayed(const Duration(seconds: 5), () {
-      final c = _pendingPriority.remove(pid);
+      final c = _pendingPriority.remove(rid);
+      _priorityPidToRid.remove(pid);
       if (c != null && !c.isCompleted) {
         c.complete({'success': false, 'error': 'Timeout'});
       }
@@ -312,23 +339,28 @@ class WebSocketService extends ChangeNotifier {
   Future<Map<String, dynamic>> fetchPriority(int pid) {
     final rid = _allocRequestId();
     final completer = Completer<Map<String, dynamic>>();
-    _pendingPriority[pid] = completer;
+    _pendingPriority[rid] = completer;
+    _priorityPidToRid[pid] = rid;
     sendMessage(
       jsonEncode({'type': 'get_priority', 'pid': pid, 'request_id': rid}),
     );
     return completer.future.timeout(
       const Duration(seconds: 5),
       onTimeout: () {
-        _pendingPriority.remove(pid);
+        _pendingPriority.remove(rid);
+        _priorityPidToRid.remove(pid);
         return {'priority': null, 'error': 'Timeout'};
       },
     );
   }
 
   Future<Map<String, dynamic>> waitForPriorityResult(int pid) {
-    final completer = _pendingPriority[pid];
-    if (completer != null) {
-      return completer.future;
+    final rid = _priorityPidToRid[pid];
+    if (rid != null) {
+      final completer = _pendingPriority[rid];
+      if (completer != null) {
+        return completer.future;
+      }
     }
     return Future.value({'success': false, 'error': 'No pending op'});
   }
@@ -348,12 +380,14 @@ class WebSocketService extends ChangeNotifier {
       }
     }
     _pendingKillByPid.clear();
+    _killPidToRid.clear();
     for (final entry in _pendingPriority.entries) {
       if (!entry.value.isCompleted) {
         entry.value.complete({'priority': null, 'error': 'Disconnected'});
       }
     }
     _pendingPriority.clear();
+    _priorityPidToRid.clear();
   }
 
   void _handleDisconnect() {

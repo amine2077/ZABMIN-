@@ -5,6 +5,7 @@ import '../core/services/websocket_service.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
 import '../core/models/system_metrics.dart';
+import '../core/utils/error_messages.dart';
 import 'glass_card.dart';
 
 class ProcessTable extends StatefulWidget {
@@ -207,7 +208,7 @@ class _ProcessTableState extends State<ProcessTable> {
                 child: Text(
                   success
                       ? '${process.name} terminated'
-                      : 'Failed: ${result['error'] ?? 'unknown error'}',
+                      : userFacingAgentError(result['error'] as String?),
                 ),
               ),
             ],

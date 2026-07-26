@@ -11,9 +11,11 @@ from urllib.parse import parse_qs, urlparse
 import psutil
 import websockets
 
+import audit as _audit
 import cpu_state
 import database
 import message_validation
+import process_policy
 import rate_limit
 import runtime
 from collectors.battery import collect as collect_battery
@@ -167,6 +169,142 @@ def _get_safe_error_response(msg_type: str, msg: dict, error: str) -> dict | Non
             "error": error,
         }
     return None
+
+
+def _psutil_error_to_string(e: Exception) -> str:
+    if isinstance(e, psutil.NoSuchProcess):
+        return "process_not_found"
+    if isinstance(e, psutil.ZombieProcess):
+        return "process_not_found"
+    if isinstance(e, psutil.AccessDenied):
+        return "access_denied"
+    return "internal_error"
+
+
+def _handle_kill_process(msg: dict) -> dict:
+    pid = msg["pid"]
+    request_id = msg["request_id"]
+    proc_name = process_policy.get_process_name_safe(pid)
+    allowed, policy_error = process_policy.check_kill_allowed(pid)
+    if not allowed:
+        _audit.audit_event(
+            "kill_process", pid, proc_name, request_id, "denied", policy_error
+        )
+        return _get_safe_error_response("kill_process", msg, policy_error)
+    try:
+        psutil.Process(pid).kill()
+        _audit.audit_event("kill_process", pid, proc_name, request_id, "success")
+        return {
+            "type": "kill_result",
+            "pid": pid,
+            "request_id": request_id,
+            "success": True,
+        }
+    except Exception as e:
+        error = _psutil_error_to_string(e)
+        _audit.audit_event("kill_process", pid, proc_name, request_id, "failed", error)
+        return _get_safe_error_response("kill_process", msg, error)
+
+
+def _handle_get_process_connections(msg: dict) -> dict:
+    pid = msg["pid"]
+    request_id = msg["request_id"]
+    proc_name = process_policy.get_process_name_safe(pid)
+    allowed, policy_error = process_policy.check_connections_allowed(pid)
+    if not allowed:
+        _audit.audit_event(
+            "get_process_connections",
+            pid,
+            proc_name,
+            request_id,
+            "denied",
+            policy_error,
+        )
+        return _get_safe_error_response("get_process_connections", msg, policy_error)
+    try:
+        conns = psutil.Process(pid).net_connections()
+        conn_list = []
+        for c in conns:
+            local = f"{c.laddr.ip}:{c.laddr.port}" if c.laddr else "—"
+            remote = f"{c.raddr.ip}:{c.raddr.port}" if c.raddr else "—"
+            proto = "UDP" if c.type == 2 else "TCP"
+            conn_list.append(
+                {
+                    "local_addr": local,
+                    "remote_addr": remote,
+                    "status": c.status or "UNKNOWN",
+                    "protocol": proto,
+                }
+            )
+        _audit.audit_event(
+            "get_process_connections", pid, proc_name, request_id, "success"
+        )
+        return {
+            "type": "process_connections",
+            "pid": pid,
+            "request_id": request_id,
+            "connections": conn_list,
+        }
+    except Exception as e:
+        error = _psutil_error_to_string(e)
+        _audit.audit_event(
+            "get_process_connections", pid, proc_name, request_id, "failed", error
+        )
+        return _get_safe_error_response("get_process_connections", msg, error)
+
+
+def _handle_set_priority(msg: dict) -> dict:
+    pid = msg["pid"]
+    priority = msg["priority"]
+    request_id = msg["request_id"]
+    proc_name = process_policy.get_process_name_safe(pid)
+    allowed, policy_error = process_policy.check_priority_allowed(pid)
+    if not allowed:
+        _audit.audit_event(
+            "set_priority", pid, proc_name, request_id, "denied", policy_error
+        )
+        return _get_safe_error_response("set_priority", msg, policy_error)
+    try:
+        p = psutil.Process(pid)
+        p.nice(priority)
+        current = p.nice()
+        _audit.audit_event("set_priority", pid, proc_name, request_id, "success")
+        return {
+            "type": "priority_result",
+            "pid": pid,
+            "request_id": request_id,
+            "success": True,
+            "priority": current,
+        }
+    except Exception as e:
+        error = _psutil_error_to_string(e)
+        _audit.audit_event("set_priority", pid, proc_name, request_id, "failed", error)
+        return _get_safe_error_response("set_priority", msg, error)
+
+
+def _handle_get_priority(msg: dict) -> dict:
+    pid = msg["pid"]
+    request_id = msg["request_id"]
+    proc_name = process_policy.get_process_name_safe(pid)
+    allowed, policy_error = process_policy.check_priority_allowed(pid)
+    if not allowed:
+        _audit.audit_event(
+            "get_priority", pid, proc_name, request_id, "denied", policy_error
+        )
+        return _get_safe_error_response("get_priority", msg, policy_error)
+    try:
+        current = psutil.Process(pid).nice()
+        _audit.audit_event("get_priority", pid, proc_name, request_id, "success")
+        return {
+            "type": "priority_info",
+            "pid": pid,
+            "request_id": request_id,
+            "priority": current,
+        }
+    except Exception as e:
+        error = _psutil_error_to_string(e)
+        _audit.audit_event("get_priority", pid, proc_name, request_id, "failed", error)
+        return _get_safe_error_response("get_priority", msg, error)
 
 
 connected_clients = set()
@@ -378,6 +516,13 @@ async def handler(websocket):
                 continue
 
             if not _RATE_LIMITER.allow(msg_type):
+                _audit.audit_event(
+                    msg_type,
+                    msg.get("pid"),
+                    None,
+                    msg.get("request_id"),
+                    "rate_limited",
+                )
                 error_response = _get_safe_error_response(msg_type, msg, "rate_limited")
                 if error_response is not None:
                     await websocket.send(json.dumps(error_response))
@@ -386,137 +531,20 @@ async def handler(websocket):
                 continue
 
             if msg_type == "kill_process":
-                pid = msg.get("pid")
-                request_id = msg.get("request_id")
-                try:
-                    psutil.Process(pid).kill()
-                    await websocket.send(
-                        json.dumps(
-                            {
-                                "type": "kill_result",
-                                "pid": pid,
-                                "request_id": request_id,
-                                "success": True,
-                            }
-                        )
-                    )
-                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                    await websocket.send(
-                        json.dumps(
-                            {
-                                "type": "kill_result",
-                                "pid": pid,
-                                "request_id": request_id,
-                                "success": False,
-                                "error": str(e),
-                            }
-                        )
-                    )
+                response = _handle_kill_process(msg)
+                await websocket.send(json.dumps(response))
 
             elif msg_type == "get_process_connections":
-                pid = msg.get("pid")
-                request_id = msg.get("request_id")
-                try:
-                    conns = psutil.Process(pid).net_connections()
-                    conn_list = []
-                    for c in conns:
-                        local = f"{c.laddr.ip}:{c.laddr.port}" if c.laddr else "—"
-                        remote = f"{c.raddr.ip}:{c.raddr.port}" if c.raddr else "—"
-                        proto = "UDP" if c.type == 2 else "TCP"
-                        conn_list.append(
-                            {
-                                "local_addr": local,
-                                "remote_addr": remote,
-                                "status": c.status or "UNKNOWN",
-                                "protocol": proto,
-                            }
-                        )
-                    await websocket.send(
-                        json.dumps(
-                            {
-                                "type": "process_connections",
-                                "pid": pid,
-                                "request_id": request_id,
-                                "connections": conn_list,
-                            }
-                        )
-                    )
-                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                    await websocket.send(
-                        json.dumps(
-                            {
-                                "type": "process_connections",
-                                "pid": pid,
-                                "request_id": request_id,
-                                "connections": [],
-                                "error": str(e),
-                            }
-                        )
-                    )
+                response = _handle_get_process_connections(msg)
+                await websocket.send(json.dumps(response))
 
             elif msg_type == "set_priority":
-                pid = msg.get("pid")
-                priority = msg.get("priority")
-                request_id = msg.get("request_id")
-                try:
-                    p = psutil.Process(pid)
-                    p.nice(priority)
-                    current = p.nice()
-                    await websocket.send(
-                        json.dumps(
-                            {
-                                "type": "priority_result",
-                                "pid": pid,
-                                "request_id": request_id,
-                                "success": True,
-                                "priority": current,
-                            }
-                        )
-                    )
-                except (
-                    psutil.NoSuchProcess,
-                    psutil.AccessDenied,
-                    ValueError,
-                ) as e:
-                    await websocket.send(
-                        json.dumps(
-                            {
-                                "type": "priority_result",
-                                "pid": pid,
-                                "request_id": request_id,
-                                "success": False,
-                                "error": str(e),
-                            }
-                        )
-                    )
+                response = _handle_set_priority(msg)
+                await websocket.send(json.dumps(response))
 
             elif msg_type == "get_priority":
-                pid = msg.get("pid")
-                request_id = msg.get("request_id")
-                try:
-                    current = psutil.Process(pid).nice()
-                    await websocket.send(
-                        json.dumps(
-                            {
-                                "type": "priority_info",
-                                "pid": pid,
-                                "request_id": request_id,
-                                "priority": current,
-                            }
-                        )
-                    )
-                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                    await websocket.send(
-                        json.dumps(
-                            {
-                                "type": "priority_info",
-                                "pid": pid,
-                                "request_id": request_id,
-                                "priority": None,
-                                "error": str(e),
-                            }
-                        )
-                    )
+                response = _handle_get_priority(msg)
+                await websocket.send(json.dumps(response))
 
             elif msg_type == "get_history":
                 minutes = msg.get("duration_minutes")
@@ -534,6 +562,9 @@ async def handler(websocket):
 
             elif msg_type == "shutdown":
                 logger.info("Shutdown requested via WebSocket")
+                _audit.audit_event(
+                    "shutdown", None, None, msg.get("request_id"), "success"
+                )
                 _shutdown_event.set()
                 break
 

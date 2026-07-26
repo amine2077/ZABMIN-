@@ -7,6 +7,7 @@ import '../core/services/websocket_service.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
 import '../core/models/system_metrics.dart';
+import '../core/utils/error_messages.dart';
 import '../widgets/animated_metric.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/screen_shell.dart';
@@ -376,7 +377,7 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
                 child: Text(
                   success
                       ? '${process.name} terminated'
-                      : 'Failed: ${result['error'] ?? 'unknown error'}',
+                      : userFacingAgentError(result['error'] as String?),
                 ),
               ),
             ],
@@ -883,7 +884,7 @@ class _ConnectionPanelState extends State<_ConnectionPanel> {
               child: Text(
                 success
                     ? 'Priority set to ${_niceToLabel(result['priority'] as int)}'
-                    : 'Failed: ${result['error'] ?? 'unknown error'}',
+                    : userFacingAgentError(result['error'] as String?),
               ),
             ),
           ],

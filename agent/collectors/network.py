@@ -1,4 +1,5 @@
 import time
+
 import psutil
 
 _prev_io = None

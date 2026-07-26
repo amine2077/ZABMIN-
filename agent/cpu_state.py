@@ -1,8 +1,9 @@
 import ctypes
-import time
-import threading
-import psutil
 import logging
+import threading
+import time
+
+import psutil
 
 logger = logging.getLogger(__name__)
 

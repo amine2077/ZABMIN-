@@ -125,13 +125,39 @@ KILL#205:         kill_result {success:false, error:"rate_limited"}
 TOKEN IN LOG:     Not found
 ```
 
-## What's Next (Day 4+)
+## Day 4 (Command Safety and Audit) — COMPLETED
 
-Potential Day 4 tasks:
-- Protected-process blocking (prevent kill/set_priority on system-critical PIDs)
-- Audit logging (log all kill/set_priority operations to a file)
+### Completed Work
+
+- **process_policy.py**: Protected PID blocking (0, 4), protected process names (System, Registry, smss.exe, csrss.exe, wininit.exe, services.exe, lsass.exe, winlogon.exe), agent self-protection, safe process name reading, fail-closed when name unavailable
+- **audit.py**: Rotating audit logger (`agent/logs/audit.log`, 1MB x 3), logs action/pid/process_name/request_id/result/error for all privileged outcomes (success, denied, failed, rate_limited)
+- **agent.py refactored**: Command handlers extracted into testable sync helpers (`_handle_kill_process`, `_handle_set_priority`, `_handle_get_priority`, `_handle_get_process_connections`). All responses guaranteed to include pid + request_id. All psutil errors mapped to safe strings (`process_not_found`, `access_denied`, `internal_error`). Rate-limited commands now audited. `_psutil_error_to_string()` maps exceptions to safe error strings.
+- **Flutter error messages**: Shared `userFacingAgentError()` in `core/utils/error_messages.dart`, used by both processes_screen.dart and process_table.dart. Covers `internal_error` and all Day 4 error strings.
+- **Flutter request_id matching**: Kill and priority completers now match by request_id first (with pid fallback), preventing timeouts when response identifiers vary.
+- **Tests**: 189 Python tests (+25 new: 2 fail-closed, 4 error mapping, 23 command response shape tests). 52 Flutter tests (+12 new: error message tests).
+
+### Day 4 Smoke Test Results
+
+```
+PID 0 KILL:       kill_result {success:false, error:"protected_process"}
+PID 4 KILL:       kill_result {success:false, error:"protected_process"}
+AGENT SELF-KILL:  kill_result {success:false, error:"agent_process"}
+MISSING PID:      kill_result {success:false, error:"process_not_found"}
+ACCESS DENIED:    kill_result {success:false, error:"access_denied"}
+UNEXPECTED ERR:   kill_result {success:false, error:"internal_error"}
+RATE-LIMITED:     kill_result {success:false, error:"rate_limited"} + audited
+SUCCESS KILL:     kill_result {pid, request_id, success:true}
+NORMAL PROCESS:   priority_result {success:true, priority} (no timeout)
+CONNECTIONS:      process_connections {pid, request_id, connections} (no timeout)
+AUDIT LOG:        Contains success, denied, failed, rate_limited events
+TOKEN IN LOG:     Not found
+```
+
+### What's Next (Day 5+)
+
 - Collector runner framework (timing/timeout/retry per collector)
 - Agent packaging as Windows executable (PyInstaller/Nuitka)
+- Protected process configuration or extended blocklist
 
 ## Important Gotchas
 

@@ -91,9 +91,9 @@ def test_throttle_false_when_no_max():
 
 
 def test_temperature_c_returns_none_when_no_wmi():
-    from collectors.cpu import _cpu_temperature_c
-
     import builtins
+
+    from collectors.cpu import _cpu_temperature_c
 
     real_import = builtins.__import__
 

@@ -1,11 +1,11 @@
 from message_validation import (
-    is_valid_request_id,
+    _ALLOWED_PRIORITIES,
+    is_known_type,
+    is_valid_duration_minutes,
     is_valid_pid,
     is_valid_priority,
-    is_valid_duration_minutes,
+    is_valid_request_id,
     validate_message,
-    is_known_type,
-    _ALLOWED_PRIORITIES,
 )
 
 
