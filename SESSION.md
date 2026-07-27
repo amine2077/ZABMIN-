@@ -6,23 +6,26 @@
 Zabmin/
 ├── agent/ (Python 3.13 WebSocket server)
 │   ├── agent.py              — main entrypoint, WebSocket handler, broadcast loop
-│   ├── message_validation.py — [NEW Day 3] pure field validation helpers
-│   ├── rate_limit.py         — [NEW Day 3] sliding-window rate limiter
+│   ├── lifecycle.py          — [NEW Day 5] Windows mutex, PID alive, process verification
+│   ├── collector_runner.py   — [NEW Day 6] parallel collector runner (timeouts, cache, stale fallback, health)
+│   ├── message_validation.py — [Day 3] pure field validation helpers
+│   ├── rate_limit.py         — [Day 3] sliding-window rate limiter
 │   ├── runtime.py            — atomic JSON I/O for %LOCALAPPDATA%\Zabmin\runtime.json
 │   ├── cpu_state.py          — shared memory for CPU monitor thread
 │   ├── database.py           — SQLite history (WAL mode, 5s inserts)
 │   ├── collectors/           — psutil/WMI collectors (cpu, memory, disk, network, processes, gpu, battery)
 │   ├── logs/agent.log        — rotating log (5MB, 3 backups)
-│   └── tests/                — pytest suite (117 tests)
+│   ├── tests/                — pytest suite (220 tests)
 ├── app/ (Flutter 3.41 Windows desktop)
 │   ├── lib/
 │   │   ├── main.dart         — deletes stale runtime.json, launches agent subprocess
 │   │   ├── core/services/
-│   │   │   ├── websocket_service.dart — polls runtime.json, connects with ?token=, handles typed responses
-│   │   │   └── alerts_service.dart    — threshold-based alert engine
+│   │   │   ├── websocket_service.dart — polls runtime.json, connects with ?token=, handles typed responses, exponential backoff
+│   │   ├── agent_process_manager.dart — [NEW Day 5] runtime.json lifecycle, agent start/stop with PID verification
+│   │   └── alerts_service.dart    — threshold-based alert engine
 │   │   ├── screens/          — dashboard, processes, network, disk, ram, gpu, settings
 │   │   └── widgets/          — process_table, metric_card, metric_chart, core_bar_grid, etc.
-│   └── test/                 — flutter_test suite (40 tests)
+│   └── test/                 — flutter_test suite (57 tests)
 └── ARCHITECTURE.md, README.md, AGENTS.md
 ```
 
@@ -82,31 +85,31 @@ Zabmin/
 
 ## File Inventory (90+ files total)
 
-### New in Day 3
+### New in Day 5 + Day 6
 | File | Tests | Description |
 |------|-------|-------------|
-| `agent/message_validation.py` | 33 | Pure field validators + message rules |
-| `agent/rate_limit.py` | 10 | Sliding-window rate limiter (injectable time) |
-| `agent/tests/test_message_validation.py` | — | 33 tests for all validation paths |
-| `agent/tests/test_rate_limit.py` | — | 10 tests for rate limit behavior |
+| `agent/lifecycle.py` | 17 | Windows mutex, PID alive/process verification, runtime validity |
+| `agent/collector_runner.py` | 13 | Parallel collector framework (timeout, cache, stale, health, in-flight dedup) |
+| `app/lib/core/services/agent_process_manager.dart` | — | Runtime.json lifecycle, agent start/stop with PID safety checks |
 
 ### Key Existing Files
 | File | What it does |
 |------|-------------|
-| `agent/agent.py` | Main entrypoint (~550 lines). Imports message_validation, rate_limit. WebSocket handler with 3-layer validation pipeline. |
+| `agent/agent.py` | Main entrypoint (~700 lines). Imports lifecycle, collector_runner, message_validation, rate_limit. WebSocket handler with orphan detection and parallel collector broadcast. |
 | `agent/runtime.py` | Atomic runtime.json I/O. Fields: pid, port, token, started_at. |
 | `agent/cpu_state.py` | Thread-safe CPU state (shared between perf_monitor_loop and async collector). |
 | `agent/database.py` | SQLite history (get_history, insert_metrics). |
 | `agent/collectors/cpu.py` | Reads from cpu_state (psutil called in thread only). |
-| `app/lib/core/services/websocket_service.dart` | Flutter WebSocket client (~423 lines). Maps typed responses to completers, ignores unknown typed messages. |
+| `app/lib/core/services/websocket_service.dart` | Flutter WebSocket client (~480 lines). Maps typed responses to completers, ignores unknown typed messages, exponential backoff reconnection. |
+| `app/lib/core/services/agent_process_manager.dart` | Flutter-side agent lifecycle: read/validate/delete runtime.json, start hidden VBS agent, stop with graceful→taskkill fallback. |
 | `app/lib/widgets/process_table.dart` | Responsive process table (LayoutBuilder, columns hide at <430px or <540px). |
 
 ## Test Suite
 
 | Suite | Count | How to run |
 |-------|-------|-----------|
-| Python (pytest) | 117 | `cd agent && python -m pytest tests -v` |
-| Flutter | 40 | `cd app && flutter test` |
+| Python (pytest) | 220 | `cd agent && python -m pytest tests -v` |
+| Flutter | 57 | `cd app && flutter test` |
 | Ruff | — | `cd agent && ruff check . && ruff format --check .` |
 | Flutter analyze | — | `cd app && flutter analyze` |
 
@@ -153,11 +156,54 @@ AUDIT LOG:        Contains success, denied, failed, rate_limited events
 TOKEN IN LOG:     Not found
 ```
 
-### What's Next (Day 5+)
+### Day 5 (Agent Lifecycle Hardening) — COMPLETED
 
-- Collector runner framework (timing/timeout/retry per collector)
+- **lifecycle.py**: `acquire_agent_mutex()` (Windows `Local\ZabminAgent`, proper ctypes restype/argtypes), `release_agent_mutex()`, `is_pid_alive()` (tasklist), `is_zabmin_agent_process()` (tasklist then wmic), `is_runtime_valid()`
+- **agent.py**: `_should_shutdown_orphan()` pure helper, 30s grace + 60s idle window, `_start_time` tracking, `_last_client_activity` updated on disconnect
+- **agent_process_manager.dart**: `stopAgent()` — graceful via WebSocket shutdown, fallback to `taskkill` only after PID verification, `isPidZabminAgent()` public method
+- **main.dart**: Updated `_killAgent()` to use new `stopAgent()`, already reads runtime.json before deleting
+- **websocket_service.dart**: Made `backoffDelay` public (`@visibleForTesting`), removed duplicate `_agentError = null`
+- **Tests**: 17 new Python tests for lifecycle helpers
+
+### Day 6 (Collector Resilience) — COMPLETED
+
+- **collector_runner.py**: `CollectorRunner` with `ThreadPoolExecutor`, parallel submission of all collectors, sequential result collection with per-collector timeouts bound by `TOTAL_BROADCAST_BUDGET` (1.5s), thread-safe in-flight dedup (`_in_flight` dict under `threading.Lock`), TTL cache for expensive collectors, stale fallback when a collector times out, health tracking every 10 broadcasts
+- **collectors/gpu.py**: Removed CPU temperature fallback for GPU temperature
+- **collectors/disk.py**: Added 300s TTL caches for volume labels and physical drive mapping to avoid repeated `CreateFileW`/`DeviceIoControl` per tick
+- **agent.py**: Raised per-collector timeouts (cpu/memory/network 0.25→0.5, disk 0.6→1.0, processes 0.7→1.5, gpu 0.8→1.5, battery 0.25→0.5) to match real-world PDH initialization and process enumeration times
+- **Tests**: 13 new Python tests for collector runner (parallel execution, in-flight dedup, cache TTL, timeout/stale fallback, non-blocking shutdown, health tracking)
+
+### What's Next
+
 - Agent packaging as Windows executable (PyInstaller/Nuitka)
 - Protected process configuration or extended blocklist
+- Manual smoke test on target hardware
+
+## Day 5 + Day 6 Smoke Test Results
+
+```
+COLLECTOR HEALTH (stabilized):
+  cpu=ok/62ms memory=ok/62ms disk=ok/62ms network=ok/62ms
+  processes=ok/1290ms gpu=ok/1290ms battery=ok/1290ms
+
+FIRST TICK:
+  All collectors time out (PDH/WMI init). No stale available.
+  ~4 ticks before any collector produces data.
+
+STALE FALLBACK:
+  After first successful run, timed-out collectors return stale data.
+  cpu, memory, disk, network stabilize within 3-5 ticks.
+  processes, gpu take ~8-12 ticks before completing within budget.
+
+ORPHAN SHUTDOWN:
+  Agent shuts down ~90s after last client disconnects (30s grace + 60s idle).
+
+WMI IUnknown LEAK:
+  "Win32 exception occurred releasing IUnknown" on shutdown — pre-existing,
+  does not affect runtime operation.
+
+TOKEN IN LOG:     Not found
+```
 
 ## Important Gotchas
 
@@ -168,3 +214,5 @@ TOKEN IN LOG:     Not found
 5. **Runtime file path**: `_runtime_path()` returns `None` if `LOCALAPPDATA` env var is missing — caller must handle.
 6. **Format**: Run `ruff format .` from `agent/` before committing — it touches many files.
 7. **`_get_safe_error_response`**: Sends raw `msg.get("pid")` which may be a string if validation failed for type reason. Flutter completers handle via timeout if type mismatch.
+8. **collector_runner elapsed time**: `elapsed` is measured from submission to result retrieval, not actual execution time. Slow collectors show inflated elapsed ms because they include time spent waiting for earlier collectors in the sequential result loop.
+9. **First tick timeout**: All collectors time out on the very first broadcast because PDH counters and WMI need initialization. The `TOTAL_BROADCAST_BUDGET` (1.5s) handles this via stale fallback — subsequent ticks produce real data.

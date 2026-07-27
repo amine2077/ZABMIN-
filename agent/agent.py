@@ -12,8 +12,10 @@ import psutil
 import websockets
 
 import audit as _audit
+import collector_runner
 import cpu_state
 import database
+import lifecycle
 import message_validation
 import process_policy
 import rate_limit
@@ -64,40 +66,23 @@ def _clear_status():
 
 
 def get_websocket_request_path(websocket) -> str | None:
-    """Safely extract the request path from a websockets ServerConnection.
-
-    Returns None if the request is not yet available (should not happen
-    once the handler is called, but guard against it anyway).
-    """
     if websocket.request is None:
         return None
     return websocket.request.path
 
 
 def extract_token_from_request_path(request_path: str) -> str | None:
-    """Extract the token query parameter from a WebSocket request path.
-
-    Returns None if the parameter is missing or the path is malformed.
-    """
     params = parse_qs(urlparse(request_path).query)
     return params.get("token", [None])[0]
 
 
 def token_is_valid(token: str | None) -> bool:
-    """Constant-time comparison of the provided token against the session token.
-
-    Returns True only if token matches _SESSION_TOKEN.
-    """
     if token is None:
         return False
     return secrets.compare_digest(token, _SESSION_TOKEN)
 
 
 def _check_origin(websocket) -> tuple[bool, int | None, str | None]:
-    """Check Host and Origin headers for extra hardening.
-
-    Returns (ok, close_code, reason).
-    """
     try:
         headers = websocket.request.headers
     except Exception:
@@ -126,7 +111,6 @@ def _check_origin(websocket) -> tuple[bool, int | None, str | None]:
 
 
 def _get_safe_error_response(msg_type: str, msg: dict, error: str) -> dict | None:
-    """Return a safe error response for a failed message, or None if no response."""
     request_id = msg.get("request_id")
 
     if msg_type == "kill_process":
@@ -310,6 +294,9 @@ def _handle_get_priority(msg: dict) -> dict:
 connected_clients = set()
 _shutdown_event = asyncio.Event()
 
+_start_time: float = time.monotonic()
+_last_client_activity: float = time.monotonic()
+
 _SESSION_TOKEN: str = runtime.generate_token()
 
 _RATE_LIMITER = rate_limit.RateLimiter(
@@ -323,8 +310,84 @@ _RATE_LIMITER = rate_limit.RateLimiter(
     }
 )
 
-# TEMP: Day 1 baseline measurement, remove or replace with agent/collector_runner.py timing framework in Day 6
-_collector_timing_counter = 0
+_CPU_SPEC = collector_runner.CollectorSpec(
+    name="cpu", fn=collect_cpu, timeout_seconds=0.5, with_com=True
+)
+_MEMORY_SPEC = collector_runner.CollectorSpec(
+    name="memory", fn=collect_memory, timeout_seconds=0.5, with_com=True
+)
+_DISK_SPEC = collector_runner.CollectorSpec(
+    name="disk", fn=collect_disk, timeout_seconds=1.0
+)
+_NETWORK_SPEC = collector_runner.CollectorSpec(
+    name="network", fn=collect_network, timeout_seconds=0.5
+)
+_PROCESSES_SPEC = collector_runner.CollectorSpec(
+    name="processes", fn=collect_processes, timeout_seconds=1.5
+)
+_GPU_SPEC = collector_runner.CollectorSpec(
+    name="gpu", fn=collect_gpu, timeout_seconds=1.5, with_com=True
+)
+_BATTERY_SPEC = collector_runner.CollectorSpec(
+    name="battery", fn=collect_battery, timeout_seconds=0.5
+)
+
+_COLLECTOR_RUNNER = collector_runner.CollectorRunner(
+    specs=[
+        _CPU_SPEC,
+        _MEMORY_SPEC,
+        _DISK_SPEC,
+        _NETWORK_SPEC,
+        _PROCESSES_SPEC,
+        _GPU_SPEC,
+        _BATTERY_SPEC,
+    ]
+)
+
+_SAFE_DEFAULTS: dict[str, dict | list | None] = {
+    "cpu": {
+        "percent_total": 0.0,
+        "percent_per_core": [],
+        "freq_mhz": 0,
+        "core_count": 0,
+        "thread_count": 0,
+        "temperature_c": None,
+        "throttled": False,
+    },
+    "memory": {
+        "total_gb": 0.0,
+        "used_gb": 0.0,
+        "percent": 0.0,
+        "available_gb": 0.0,
+        "cached_gb": 0.0,
+        "speed_mhz": 0,
+    },
+    "disk": {
+        "total_gb": 0.0,
+        "used_gb": 0.0,
+        "percent": 0.0,
+        "read_mb_s": 0.0,
+        "write_mb_s": 0.0,
+        "partitions": [],
+    },
+    "network": {
+        "sent_mb_s": 0.0,
+        "recv_mb_s": 0.0,
+        "total_sent_gb": 0.0,
+        "total_recv_gb": 0.0,
+    },
+    "processes": [],
+    "gpu": [],
+}
+
+
+def _get_collector_data(name: str, result: collector_runner.CollectorResult):
+    if result.ok and result.data is not None:
+        return result.data
+    default = _SAFE_DEFAULTS.get(name)
+    if default is not None:
+        return default
+    return None
 
 
 def _write_pid_file():
@@ -336,132 +399,60 @@ def _write_pid_file():
         logger.warning(f"Failed to write PID file: {e}")
 
 
-def _run_with_com(fn):
-    """Wrap a collector so asyncio.to_thread workers have COM initialized (required for WMI on Windows)."""
-
-    def _inner():
-        try:
-            import pythoncom
-
-            pythoncom.CoInitializeEx(0)
-        except Exception:
-            pass
-        try:
-            return fn()
-        finally:
-            try:
-                import pythoncom
-
-                pythoncom.CoUninitialize()
-            except Exception:
-                pass
-
-    return _inner
+def _should_shutdown_orphan(
+    start_time: float,
+    last_client_activity: float,
+    standalone: bool,
+    has_clients: bool,
+) -> bool:
+    if standalone:
+        return False
+    if has_clients:
+        return False
+    now = time.monotonic()
+    grace_end = start_time + 30.0
+    reference = max(last_client_activity, grace_end)
+    return (now - reference) > 60.0
 
 
-COLLECTOR_TIMEOUT = 10.0
+def _can_run_orphan() -> bool:
+    return os.environ.get("ZABMIN_AGENT_STANDALONE") != "1"
 
 
-async def _run_in_thread(fn, label, with_com=False, timeout=COLLECTOR_TIMEOUT):
-    """Run a collector in a thread pool, optionally with COM init.
-
-    Returns the collector result or None if it times out / fails.
-    """
-    wrapped = _run_with_com(fn) if with_com else fn
-    try:
-        t0 = time.monotonic()
-        result = await asyncio.wait_for(
-            asyncio.to_thread(wrapped),
-            timeout=timeout,
-        )
-        logger.debug(f"Collector {label} OK in {time.monotonic() - t0:.1f}s")
-        return result
-    except asyncio.TimeoutError:
-        logger.warning(f"Collector {label} timed out (>{timeout}s)")
-        return None
-    except Exception as e:
-        logger.warning(f"Collector {label} failed: {e}")
-        return None
+async def _check_orphan():
+    if _should_shutdown_orphan(
+        _start_time,
+        _last_client_activity,
+        not _can_run_orphan(),
+        bool(connected_clients),
+    ):
+        logger.info("No clients for 60s (after 30s grace), shutting down")
+        _shutdown_event.set()
 
 
-# TEMP: Day 1 baseline measurement, remove or replace with agent/collector_runner.py timing framework in Day 6
 async def gather_metrics():
-    """Collect all metrics in parallel threads. Only cpu+memory need COM init."""
-    global _collector_timing_counter
-    _timings = {}
+    results = _COLLECTOR_RUNNER.collect_all()
 
-    async def _timed(label, coro):
-        t0 = time.monotonic()
-        result = await coro
-        _timings[label] = (time.monotonic() - t0) * 1000
-        return result
-
-    cpu_task = _timed("cpu", _run_in_thread(collect_cpu, "cpu", with_com=True))
-    mem_task = _timed("memory", _run_in_thread(collect_memory, "memory", with_com=True))
-    disk_task = _timed("disk", _run_in_thread(collect_disk, "disk"))
-    net_task = _timed("network", _run_in_thread(collect_network, "network"))
-    procs_task = _timed("processes", _run_in_thread(collect_processes, "processes"))
-    gpu_task = _timed("gpu", _run_in_thread(collect_gpu, "gpu", with_com=True))
-    battery_task = _timed("battery", _run_in_thread(collect_battery, "battery"))
-
-    cpu, mem, disk, net, procs, gpu, battery = await asyncio.gather(
-        cpu_task,
-        mem_task,
-        disk_task,
-        net_task,
-        procs_task,
-        gpu_task,
-        battery_task,
+    cpu = _get_collector_data("cpu", results.get("cpu"))
+    mem = _get_collector_data("memory", results.get("memory"))
+    disk = _get_collector_data("disk", results.get("disk"))
+    net = _get_collector_data("network", results.get("network"))
+    procs = _get_collector_data("processes", results.get("processes"))
+    gpu = _get_collector_data("gpu", results.get("gpu"))
+    battery_result = results.get("battery")
+    battery = (
+        battery_result.data
+        if battery_result.ok and battery_result.data is not None
+        else None
     )
 
-    _collector_timing_counter += 1
-    if _collector_timing_counter >= 10:
-        _collector_timing_counter = 0
-        logger.info(
-            f"collector timings: cpu={_timings.get('cpu', 0):.0f}ms "
-            f"mem={_timings.get('memory', 0):.0f}ms "
-            f"disk={_timings.get('disk', 0):.0f}ms "
-            f"net={_timings.get('network', 0):.0f}ms "
-            f"proc={_timings.get('processes', 0):.0f}ms "
-            f"gpu={_timings.get('gpu', 0):.0f}ms "
-            f"batt={_timings.get('battery', 0):.0f}ms"
-        )
     payload = {
         "version": 3,
         "timestamp": int(time.time()),
-        "cpu": cpu
-        or {
-            "percent_total": 0.0,
-            "percent_per_core": [],
-            "freq_mhz": 0,
-            "core_count": 0,
-            "thread_count": 0,
-            "temperature_c": None,
-            "throttled": False,
-        },
-        "memory": mem
-        or {
-            "total_gb": 0.0,
-            "used_gb": 0.0,
-            "percent": 0.0,
-            "available_gb": 0.0,
-            "cached_gb": 0.0,
-        },
-        "disk": disk
-        or {
-            "total_gb": 0.0,
-            "used_gb": 0.0,
-            "percent": 0.0,
-            "read_mb_s": 0.0,
-            "write_mb_s": 0.0,
-        },
-        "network": net
-        or {
-            "sent_mb_s": 0.0,
-            "recv_mb_s": 0.0,
-            "total_sent_gb": 0.0,
-            "total_recv_gb": 0.0,
-        },
+        "cpu": cpu,
+        "memory": mem,
+        "disk": disk,
+        "network": net,
         "processes": procs or [],
         "gpu": gpu or [],
     }
@@ -485,10 +476,13 @@ async def handler(websocket):
         await websocket.close(code=close_code, reason=close_reason)
         return
 
+    global _last_client_activity
+    _last_client_activity = time.monotonic()
     connected_clients.add(websocket)
     logger.info(f"Client connected. Total: {len(connected_clients)}")
     try:
         async for raw_message in websocket:
+            _last_client_activity = time.monotonic()
             try:
                 msg = json.loads(raw_message)
             except json.JSONDecodeError:
@@ -574,12 +568,16 @@ async def handler(websocket):
         pass
     finally:
         connected_clients.discard(websocket)
+        _last_client_activity = time.monotonic()
         logger.info(f"Client disconnected. Total: {len(connected_clients)}")
 
 
 async def broadcast_loop():
     db_counter = 0
     while not _shutdown_event.is_set():
+        await _check_orphan()
+        if _shutdown_event.is_set():
+            break
         try:
             metrics = await gather_metrics()
             payload = json.dumps(metrics)
@@ -604,7 +602,22 @@ async def broadcast_loop():
 
 
 async def main():
-    _write_pid_file()
+    mutex_handle = lifecycle.acquire_agent_mutex()
+    if mutex_handle is not None:
+        handle, already_running = mutex_handle
+        if already_running:
+            logger.error("Another Zabmin agent is already running. Exiting.")
+            _write_status(False, "Another Zabmin agent is already running")
+            lifecycle.release_agent_mutex(handle)
+            return
+    else:
+        handle = None
+
+    try:
+        _write_pid_file()
+    except Exception:
+        pass
+
     try:
         perf_thread = threading.Thread(target=cpu_state.perf_monitor_loop, daemon=True)
         perf_thread.start()
@@ -624,11 +637,13 @@ async def main():
             reason = f"Failed to bind to 127.0.0.1: {e}"
             logger.error(reason)
             _write_status(False, reason)
+            lifecycle.release_agent_mutex(handle)
             return
         except Exception as e:
             reason = f"Failed to start server: {e}"
             logger.error(reason)
             _write_status(False, reason)
+            lifecycle.release_agent_mutex(handle)
             return
 
         port: int | None = None
@@ -639,6 +654,7 @@ async def main():
             logger.error(reason)
             _write_status(False, reason)
             server.close()
+            lifecycle.release_agent_mutex(handle)
             return
 
         try:
@@ -647,6 +663,7 @@ async def main():
             logger.error(str(e))
             _write_status(False, str(e))
             server.close()
+            lifecycle.release_agent_mutex(handle)
             return
         logger.info(f"Listening on 127.0.0.1:{port}")
 
@@ -662,12 +679,14 @@ async def main():
             await server.wait_closed()
             logger.info("Server closed")
     finally:
+        _COLLECTOR_RUNNER.shutdown()
         _clear_status()
         runtime.cleanup_runtime()
         try:
             os.remove(PID_FILE)
         except OSError:
             pass
+        lifecycle.release_agent_mutex(handle)
 
 
 if __name__ == "__main__":

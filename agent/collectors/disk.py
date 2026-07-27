@@ -6,6 +6,8 @@ import psutil
 
 _prev_io = {}
 _prev_time = None
+_label_cache: dict[str, tuple[float, str]] = {}
+_drive_cache: dict[str, tuple[float, int | None]] = {}
 _kernel32 = ctypes.windll.kernel32
 
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
@@ -31,21 +33,35 @@ class _VOLUME_DISK_EXTENTS(ctypes.Structure):
     ]
 
 
+LABEL_CACHE_TTL = 300.0
+DRIVE_CACHE_TTL = 300.0
+
+
 def _get_volume_label(mountpoint):
+    now = time.monotonic()
+    cached = _label_cache.get(mountpoint)
+    if cached is not None and (now - cached[0]) < LABEL_CACHE_TTL:
+        return cached[1]
     try:
         buf = ctypes.create_unicode_buffer(261)
         result = _kernel32.GetVolumeInformationW(
             mountpoint, buf, 261, None, None, None, None, 0
         )
         if result and buf.value:
+            _label_cache[mountpoint] = (now, buf.value)
             return buf.value
     except Exception:
         pass
+    if cached is not None:
+        return cached[1]
     return ""
 
 
 def _get_physical_drive_number(mountpoint):
-    """Open the volume and ask Windows which physical disk(s) back it."""
+    now = time.monotonic()
+    cached = _drive_cache.get(mountpoint)
+    if cached is not None and (now - cached[0]) < DRIVE_CACHE_TTL:
+        return cached[1]
     vol_path = f"\\\\.\\{mountpoint.rstrip(chr(92))}"
     handle = _kernel32.CreateFileW(
         vol_path,
@@ -57,6 +73,8 @@ def _get_physical_drive_number(mountpoint):
         None,
     )
     if handle == INVALID_HANDLE_VALUE or handle is None:
+        if cached is not None:
+            return cached[1]
         return None
     try:
         out = ctypes.create_string_buffer(ctypes.sizeof(_VOLUME_DISK_EXTENTS) + 64)
@@ -72,10 +90,16 @@ def _get_physical_drive_number(mountpoint):
             None,
         )
         if not ok:
+            if cached is not None:
+                return cached[1]
             return None
         extents = ctypes.cast(out, ctypes.POINTER(_VOLUME_DISK_EXTENTS)).contents
-        return int(extents.Extents[0].DiskNumber)
+        result = int(extents.Extents[0].DiskNumber)
+        _drive_cache[mountpoint] = (now, result)
+        return result
     except Exception:
+        if cached is not None:
+            return cached[1]
         return None
     finally:
         try:

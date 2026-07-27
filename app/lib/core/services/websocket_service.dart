@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -8,6 +9,14 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/system_metrics.dart';
 
 const int _kMaxRetriesBeforeCheck = 3;
+
+@visibleForTesting
+int backoffDelay(int attempt) {
+  if (attempt <= 0) return 1;
+  final delay = min(10.0, pow(2, attempt - 1).toDouble());
+  final jitter = Random().nextDouble() * 0.5;
+  return (delay + jitter).round();
+}
 
 class WebSocketService extends ChangeNotifier {
   WebSocketChannel? _channel;
@@ -82,6 +91,7 @@ class WebSocketService extends ChangeNotifier {
     if (_agentError != null) return;
     _reconnectTimer?.cancel();
     _connectionStatus = 'connecting';
+    _receivedFirstMessage = false;
     notifyListeners();
     _waitForRuntimeAndConnect();
   }
@@ -409,6 +419,13 @@ class WebSocketService extends ChangeNotifier {
       return;
     }
 
+    if (closeCode == 4403) {
+      _agentError =
+          'Connection rejected: forbidden (Host/Origin check failed).';
+      notifyListeners();
+      return;
+    }
+
     if (!_receivedFirstMessage && closeCode == null) {
       _agentError =
           'Agent connection closed before any data was received. '
@@ -443,7 +460,10 @@ class WebSocketService extends ChangeNotifier {
 
   void _scheduleReconnect() {
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 3), () {
+    final delay = backoffDelay(_connectAttempts);
+    _connectionStatus = 'reconnecting';
+    notifyListeners();
+    _reconnectTimer = Timer(Duration(seconds: delay), () {
       connect();
     });
   }

@@ -57,17 +57,11 @@ void main() {
     });
 
     test('maps Timeout to friendly message', () {
-      expect(
-        userFacingAgentError('Timeout'),
-        'The operation timed out.',
-      );
+      expect(userFacingAgentError('Timeout'), 'The operation timed out.');
     });
 
     test('maps Disconnected to friendly message', () {
-      expect(
-        userFacingAgentError('Disconnected'),
-        'Disconnected from agent.',
-      );
+      expect(userFacingAgentError('Disconnected'), 'Disconnected from agent.');
     });
 
     test('returns raw string for unknown error', () {

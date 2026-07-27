@@ -3,7 +3,6 @@
 import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 
 import websockets
@@ -65,7 +64,9 @@ async def smoke_test():
         assert resp.get("request_id") == 1002
         assert resp.get("pid") == rt["pid"]
         assert resp.get("success") is False
-        assert resp.get("error") == "agent_process", f"Expected agent_process, got {resp.get('error')}"
+        assert resp.get("error") == "agent_process", (
+            f"Expected agent_process, got {resp.get('error')}"
+        )
         print(f"  OK: Self-kill -> {resp['error']}")
 
         # 5. Kill non-existent PID (99999)
@@ -81,7 +82,12 @@ async def smoke_test():
 
         # 6. Set priority on non-existent PID
         print("\n--- 6. Set priority on non-existent PID 99999 ---")
-        req = {"type": "set_priority", "pid": 99999, "priority": 16384, "request_id": 1004}
+        req = {
+            "type": "set_priority",
+            "pid": 99999,
+            "priority": 16384,
+            "request_id": 1004,
+        }
         await ws.send(json.dumps(req))
         resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=5.0))
         assert resp.get("type") == "priority_result"
@@ -98,7 +104,9 @@ async def smoke_test():
         assert resp.get("type") == "priority_info"
         assert resp.get("request_id") == 1005
         assert resp.get("pid") == rt["pid"]
-        assert resp.get("error") == "agent_process", f"Expected agent_process, got {resp.get('error')}"
+        assert resp.get("error") == "agent_process", (
+            f"Expected agent_process, got {resp.get('error')}"
+        )
         print(f"  OK: get_priority agent -> {resp['error']}")
 
         # 8. Get connections on non-existent PID

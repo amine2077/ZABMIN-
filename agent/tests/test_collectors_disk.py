@@ -36,6 +36,8 @@ def reset_globals():
 
     disk_mod._prev_io = {}
     disk_mod._prev_time = None
+    disk_mod._label_cache = {}
+    disk_mod._drive_cache = {}
 
 
 @pytest.fixture(autouse=True)
@@ -110,7 +112,7 @@ def test_collect_second_tick_computes_speed():
     ):
         mock_parts.return_value = _make_partitions()
         mock_usage.return_value = _make_usages()
-        mock_time.side_effect = [_REAL_NOW, _REAL_NOW + 3.0]
+        mock_time.side_effect = [2000.0, 2000.0, 2000.0, 2003.0, 2003.0, 2003.0]
 
         io_first = _make_standard_fake_io()
         io_second = {

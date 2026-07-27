@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -11,6 +10,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'core/services/agent_process_manager.dart';
 import 'core/services/websocket_service.dart';
 import 'core/services/alerts_service.dart';
 import 'core/services/history_service.dart';
@@ -20,50 +20,24 @@ import 'core/theme/zcolors.dart';
 import 'screens/dashboard_screen.dart';
 import 'widgets/export_dialog.dart';
 
+final AgentProcessManager _agentProcessManager = AgentProcessManager();
+
 Future<void> _startAgent() async {
   try {
-    final localAppData = Platform.environment['LOCALAPPDATA'];
-    if (localAppData != null) {
-      try {
-        final staleRuntime = File('$localAppData\\Zabmin\\runtime.json');
-        if (await staleRuntime.exists()) {
-          await staleRuntime.delete();
-          stdout.writeln('[Zabmin] Deleted stale runtime.json');
-        }
-      } catch (_) {}
+    final runtimeData = await _agentProcessManager.readRuntimeFile();
+    final valid = await _agentProcessManager.isRuntimeValid(runtimeData);
+
+    if (valid) {
+      stdout.writeln('[Zabmin] Valid running agent found, reusing it');
+      return;
     }
 
-    final appDir = Directory(Platform.script.resolve('.').toFilePath());
-
-    String? searchPath = appDir.path;
-    String? agentDir;
-
-    while (true) {
-      final parent = Directory(searchPath!).parent.path;
-      if (parent == searchPath) break;
-      final segments = Uri.directory(searchPath).pathSegments;
-      final dirName = segments.lastWhere((s) => s.isNotEmpty, orElse: () => '');
-      if (dirName == 'app') {
-        final candidate = Directory('$parent/agent');
-        if (await candidate.exists()) {
-          agentDir = candidate.path;
-        }
-        break;
-      }
-      searchPath = parent;
+    if (runtimeData != null) {
+      stdout.writeln('[Zabmin] Stale runtime.json detected, cleaning up');
     }
 
-    agentDir ??= Platform.script.resolve('../agent').toFilePath();
-
-    final vbs = File('$agentDir/run_agent.vbs');
-    if (await vbs.exists()) {
-      await Process.start('wscript', [
-        vbs.path,
-      ], mode: ProcessStartMode.detached);
-      stdout.writeln('[Zabmin] Agent started (hidden)');
-    } else {
-      stderr.writeln('[Zabmin] run_agent.vbs not found at ${vbs.path}');
-    }
+    await _agentProcessManager.deleteRuntimeFile();
+    await _agentProcessManager.startAgent();
   } catch (e) {
     stderr.writeln('[Zabmin] Failed to start agent: $e');
   }
@@ -244,93 +218,22 @@ class _AppShellState extends State<AppShell> with WindowListener, TrayListener {
 
   Future<void> _killAgent() async {
     try {
-      final appDir = Directory(Platform.script.resolve('.').toFilePath());
-      String searchPath = appDir.path;
-      String? agentDir;
-      while (true) {
-        final parent = Directory(searchPath).parent.path;
-        if (parent == searchPath) break;
-        final segments = Uri.directory(searchPath).pathSegments;
-        final dirName = segments.lastWhere(
-          (s) => s.isNotEmpty,
-          orElse: () => '',
-        );
-        if (dirName == 'app') {
-          final candidate = Directory('$parent/agent');
-          if (await candidate.exists()) agentDir = candidate.path;
-          break;
-        }
-        searchPath = parent;
-      }
-      agentDir ??= Platform.script.resolve('../agent').toFilePath();
-
-      final pidFile = File('$agentDir/agent.pid');
+      final runtimeData = await _agentProcessManager.readRuntimeFile();
 
       if (mounted) {
         try {
           final ws = context.read<WebSocketService>();
           if (ws.connectionStatus == 'connected') {
-            ws.sendMessage(jsonEncode({'type': 'shutdown'}));
-            for (int i = 0; i < 20; i++) {
-              await Future.delayed(const Duration(milliseconds: 100));
-              if (!await pidFile.exists()) return;
-            }
-          }
-        } catch (_) {}
-      }
-
-      int? pid;
-      if (await pidFile.exists()) {
-        final content = (await pidFile.readAsString()).trim();
-        pid = int.tryParse(content);
-      }
-      if (pid == null) {
-        final localAppData = Platform.environment['LOCALAPPDATA'];
-        if (localAppData != null) {
-          final runtimeFile = File('$localAppData\\Zabmin\\runtime.json');
-          if (await runtimeFile.exists()) {
-            try {
-              final data = jsonDecode(await runtimeFile.readAsString())
-                  as Map<String, dynamic>;
-              pid = data['pid'] as int?;
-            } catch (_) {}
-          }
-        }
-      }
-
-      if (pid != null) {
-        try {
-          final check = await Process.run('tasklist', [
-            '/FI',
-            'PID eq $pid',
-            '/FO',
-            'CSV',
-            '/NH',
-          ], runInShell: true);
-          final stdout = (check.stdout as String).toLowerCase();
-          if (stdout.contains('python')) {
-            await Process.run('taskkill', ['/F', '/PID', '$pid']);
+            await _agentProcessManager.stopAgent(
+              runtimeData,
+              (msg) => ws.sendMessage(msg),
+            );
             return;
           }
         } catch (_) {}
       }
 
-      final wmic = await Process.run('wmic', [
-        'process',
-        'where',
-        "name='python.exe' and CommandLine like '%agent.py%'",
-        'get',
-        'ProcessId',
-        '/format:list',
-      ], runInShell: true);
-      final out = (wmic.stdout as String);
-      for (final line in out.split('\n')) {
-        final m = RegExp(r'ProcessId=(\d+)').firstMatch(line);
-        if (m != null) {
-          final p = m.group(1)!;
-          await Process.run('taskkill', ['/F', '/PID', p]);
-        }
-      }
+      await _agentProcessManager.stopAgent(runtimeData, (_) {});
     } catch (_) {}
   }
 

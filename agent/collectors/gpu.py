@@ -278,15 +278,4 @@ def _collect_inner():
             if g["utilization_percent"] == 0:
                 g["utilization_percent"] = util
 
-    for g in gpus:
-        if g.get("temperature_c", 0.0) == 0.0:
-            try:
-                from collectors.cpu import _cpu_temperature_c
-
-                pkg_temp = _cpu_temperature_c()
-                if pkg_temp:
-                    g["temperature_c"] = pkg_temp
-            except Exception:
-                pass
-
     return gpus
