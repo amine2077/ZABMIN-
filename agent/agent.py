@@ -323,13 +323,22 @@ _NETWORK_SPEC = collector_runner.CollectorSpec(
     name="network", fn=collect_network, timeout_seconds=0.5
 )
 _PROCESSES_SPEC = collector_runner.CollectorSpec(
-    name="processes", fn=collect_processes, timeout_seconds=1.5
+    name="processes",
+    fn=collect_processes,
+    timeout_seconds=5.0,
+    background_refresh=True,
+    refresh_interval_seconds=1.5,
 )
 _GPU_SPEC = collector_runner.CollectorSpec(
-    name="gpu", fn=collect_gpu, timeout_seconds=1.5, with_com=True
+    name="gpu",
+    fn=collect_gpu,
+    timeout_seconds=5.0,
+    with_com=True,
+    background_refresh=True,
+    refresh_interval_seconds=3.0,
 )
 _BATTERY_SPEC = collector_runner.CollectorSpec(
-    name="battery", fn=collect_battery, timeout_seconds=0.5
+    name="battery", fn=collect_battery, timeout_seconds=0.5, cache_ttl_seconds=5.0
 )
 
 _COLLECTOR_RUNNER = collector_runner.CollectorRunner(
@@ -431,7 +440,7 @@ async def _check_orphan():
 
 
 async def gather_metrics():
-    results = _COLLECTOR_RUNNER.collect_all()
+    results = await asyncio.to_thread(_COLLECTOR_RUNNER.collect_all)
 
     cpu = _get_collector_data("cpu", results.get("cpu"))
     mem = _get_collector_data("memory", results.get("memory"))
@@ -575,6 +584,7 @@ async def handler(websocket):
 async def broadcast_loop():
     db_counter = 0
     while not _shutdown_event.is_set():
+        loop_start = time.monotonic()
         await _check_orphan()
         if _shutdown_event.is_set():
             break
@@ -595,8 +605,10 @@ async def broadcast_loop():
                 db_counter = 0
         except Exception as e:
             logger.error(f"Error collecting metrics: {e}")
+        elapsed = time.monotonic() - loop_start
+        sleep_time = max(0.0, 1.0 - elapsed)
         try:
-            await asyncio.wait_for(_shutdown_event.wait(), timeout=1)
+            await asyncio.wait_for(_shutdown_event.wait(), timeout=sleep_time)
         except asyncio.TimeoutError:
             pass
 

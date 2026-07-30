@@ -1,3 +1,5 @@
+import heapq
+
 import psutil
 
 # Warmup call to initialize process cpu_percent values
@@ -11,14 +13,22 @@ _logical_cpu_count = psutil.cpu_count(logical=True) or 1
 
 
 def collect():
-    """Collect top 30 processes by CPU usage matching Task Manager."""
+    """Collect top 30 processes by CPU usage matching Task Manager.
+
+    Uses heapq.nlargest for efficient top-N selection. Does NOT call
+    per-process net_connections() — that is available only through the
+    on-demand get_process_connections command.
+    """
     try:
-        procs = []
+        raw_procs = []
         for p in psutil.process_iter(
             ["pid", "ppid", "name", "cpu_percent", "memory_info", "status"]
         ):
             try:
                 info = p.info
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+            try:
                 if not info["name"]:
                     continue
 
@@ -36,7 +46,7 @@ def collect():
                 if info["memory_info"]:
                     mem_mb = round(info["memory_info"].rss / (1024**2), 1)
 
-                procs.append(
+                raw_procs.append(
                     {
                         "pid": info["pid"] or 0,
                         "ppid": info["ppid"] or 0,
@@ -50,7 +60,7 @@ def collect():
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
 
-        procs.sort(key=lambda x: x["cpu_percent"], reverse=True)
-        return procs[:30]
+        top30 = heapq.nlargest(30, raw_procs, key=lambda x: x["cpu_percent"])
+        return top30
     except Exception:
         return []

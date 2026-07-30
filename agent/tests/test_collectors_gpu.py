@@ -175,3 +175,55 @@ def test_fallback_on_exception(mock_pynvml, mock_wmi):
         mock_inner.side_effect = RuntimeError("gpu fail")
         result = gpu_mod.collect()
         assert result == []
+
+
+def test_gpu_temperature_does_not_fallback_to_cpu(mock_pynvml, mock_wmi):
+    mock_pynvml.nvmlDeviceGetCount.return_value = 0
+    mock_wmi.return_value.Win32_VideoController.return_value = [
+        MagicMock(
+            Name="AMD Radeon RX 7900 XTX",
+            AdapterRAM=24 * 1024**3,
+            DriverVersion="31.0.21002.100",
+        ),
+    ]
+
+    gpu_mod = _reload_gpu()
+    with (
+        patch("collectors.gpu._dxgi_dedicated_vram", return_value=[]),
+        patch("collectors.gpu._get_intel_gpu_utilization", return_value=0.0),
+    ):
+        result = gpu_mod.collect()
+        assert len(result) == 1
+        assert result[0]["temperature_c"] == 0.0, (
+            f"GPU temp should be 0.0 (unavailable), got {result[0]['temperature_c']}"
+        )
+
+
+def test_gpu_temperature_from_nvml_not_cpu(mock_pynvml):
+    mock_pynvml.nvmlDeviceGetCount.return_value = 1
+    handle = MagicMock()
+    mock_pynvml.nvmlDeviceGetHandleByIndex.return_value = handle
+    mock_pynvml.nvmlDeviceGetName.return_value = "NVIDIA GeForce RTX 4090"
+    mem_info = MagicMock(total=24 * 1024**3, used=12 * 1024**3)
+    mock_pynvml.nvmlDeviceGetMemoryInfo.return_value = mem_info
+    mock_pynvml.nvmlDeviceGetTemperature.return_value = 72.0
+    mock_pynvml.nvmlDeviceGetFanSpeed.return_value = 45
+    util_rates = MagicMock(gpu=50.0)
+    mock_pynvml.nvmlDeviceGetUtilizationRates.return_value = util_rates
+    mock_pynvml.nvmlSystemGetDriverVersion.return_value = "535.98"
+
+    gpu_mod = _reload_gpu()
+    with (
+        patch("collectors.gpu._get_wmi_gpu_static", return_value=[]),
+        patch("collectors.gpu._dxgi_dedicated_vram", return_value=[]),
+        patch("collectors.gpu._get_intel_gpu_utilization", return_value=0.0),
+    ):
+        result = gpu_mod.collect()
+        assert len(result) == 1
+        assert result[0]["temperature_c"] == 72.0
+        import collectors.cpu as cpu_mod
+
+        cpu_temp = getattr(cpu_mod, "_cpu_temperature_c", lambda: None)()
+        assert result[0]["temperature_c"] != (cpu_temp or 0.0), (
+            "GPU temperature must not match CPU temperature"
+        )

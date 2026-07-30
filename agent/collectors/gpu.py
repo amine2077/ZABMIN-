@@ -11,6 +11,8 @@ _wmi_static_ts = 0.0
 _dxgi_cache = None
 _dxgi_ts = 0.0
 
+# TODO: When GPUStats.temperatureC becomes nullable in Flutter model,
+# change unavailable GPU temperature from 0.0 to None.
 _nvml_initialized = False
 _nvml_count = 0
 
