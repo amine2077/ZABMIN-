@@ -4,6 +4,7 @@ from unittest.mock import patch
 import psutil
 
 from agent import (
+    _handle_get_history,
     _handle_get_priority,
     _handle_get_process_connections,
     _handle_kill_process,
@@ -176,6 +177,20 @@ class TestGetPriority:
         result = _handle_get_priority(_make_msg("get_priority"))
         assert result["priority"] is None
         assert result["error"] == "agent_process"
+
+
+class TestGetHistory:
+    def test_returns_empty_data_with_deprecation_error(self):
+        result = _handle_get_history(_make_msg("get_history"))
+        assert result["type"] == "history"
+        assert result["request_id"] == 7
+        assert result["data"] == []
+        assert result["error"] == "history_moved_to_app"
+
+    def test_request_id_is_optional(self):
+        result = _handle_get_history({"type": "get_history"})
+        assert result["request_id"] is None
+        assert result["error"] == "history_moved_to_app"
 
 
 class TestGetProcessConnections:

@@ -31,9 +31,10 @@ class _GpuScreenState extends State<GpuScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<WebSocketService>(
-      builder: (context, service, _) {
-        final metrics = service.latest;
+    final ws = context.read<WebSocketService>();
+    return ValueListenableBuilder<SystemMetrics?>(
+      valueListenable: ws.metricsNotifier,
+      builder: (context, metrics, _) {
         if (metrics == null) {
           return const Center(
             child: CircularProgressIndicator(color: ZColors.accent),
@@ -121,7 +122,7 @@ class _GpuScreenState extends State<GpuScreen> {
               const SizedBox(height: 20),
               MetricChart(
                 title: 'GPU Load',
-                history: service.history,
+                history: ws.history,
                 accentGradient: ZColors.gradientGpu,
                 showLegend: true,
                 series: [
@@ -130,14 +131,14 @@ class _GpuScreenState extends State<GpuScreen> {
                     gradient: ZColors.gradientGpu,
                     liveExtractor: (m) =>
                         m.gpu.isNotEmpty ? m.gpu.first.utilizationPercent : 0.0,
-                    historyKey: 'gpu_percent',
+                    snapshotExtractor: (s) => s.gpuPct,
                   ),
                   ChartSeries(
                     label: 'VRAM',
                     gradient: ZColors.gradientRam,
                     liveExtractor: (m) =>
                         m.gpu.isNotEmpty ? m.gpu.first.vramPercent : 0.0,
-                    historyKey: 'gpu_vram_percent',
+                    snapshotExtractor: (s) => s.gpuVramPct,
                     barWidth: 2,
                   ),
                 ],

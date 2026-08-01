@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../core/models/system_metrics.dart';
 import '../core/nav_items.dart';
 import '../core/services/websocket_service.dart';
-import '../core/services/alerts_service.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
 import '../widgets/app_rail.dart';
@@ -305,38 +304,39 @@ class _DashboardHome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<WebSocketService, AlertsService>(
-      builder: (context, wsService, alertsService, _) {
-        final metrics = wsService.latest;
-        final status = wsService.connectionStatus;
-
+    final ws = context.read<WebSocketService>();
+    return ValueListenableBuilder<SystemMetrics?>(
+      valueListenable: ws.metricsNotifier,
+      builder: (context, metrics, _) {
         if (metrics == null) {
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const _PulseLoader(),
-                const SizedBox(height: 24),
-                Text(
-                  status == 'connecting'
-                      ? 'Connecting to agent...'
-                      : 'Agent disconnected',
-                  style: ZText.body.copyWith(color: ZColors.textSecondary),
+          return Consumer<WebSocketService>(
+            builder: (context, service, _) {
+              final status = service.connectionStatus;
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const _PulseLoader(),
+                    const SizedBox(height: 24),
+                    Text(
+                      status == 'connecting'
+                          ? 'Connecting to agent...'
+                          : 'Agent disconnected',
+                      style: ZText.body.copyWith(color: ZColors.textSecondary),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      status == 'connecting'
+                          ? 'Establishing WebSocket on localhost:8765'
+                          : 'Retrying in 3 seconds...',
+                      style: ZText.caption,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  status == 'connecting'
-                      ? 'Establishing WebSocket on localhost:8765'
-                      : 'Retrying in 3 seconds...',
-                  style: ZText.caption,
-                ),
-              ],
-            ),
+              );
+            },
           );
         }
-
-        final gpus = metrics.gpu;
-        final gpuUtil = gpus.isNotEmpty ? gpus.first.utilizationPercent : 0.0;
 
         return Stack(
           children: [
@@ -379,153 +379,14 @@ class _DashboardHome extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildExecutiveHeader(context, metrics),
+                  RepaintBoundary(child: _ExecutiveHeader(metrics: metrics)),
                   const SizedBox(height: 20),
-                  MetricGrid(
-                    children: [
-                      MetricCard(
-                        label: 'CPU',
-                        value: metrics.cpu.percentTotal.toStringAsFixed(1),
-                        unit: '%',
-                        percent: metrics.cpu.percentTotal,
-                        icon: Icons.memory_rounded,
-                        gradient: ZColors.gradientCpu,
-                      ),
-                      MetricCard(
-                        label: 'Memory',
-                        value: metrics.memory.usedGb.toStringAsFixed(1),
-                        unit:
-                            '/ ${metrics.memory.totalGb.toStringAsFixed(0)} GB',
-                        percent: metrics.memory.percent,
-                        icon: Icons.pie_chart_rounded,
-                        gradient: ZColors.gradientRam,
-                      ),
-                      MetricCard(
-                        label: 'Disk I/O',
-                        value: (metrics.disk.readMbS + metrics.disk.writeMbS)
-                            .toStringAsFixed(1),
-                        unit: 'MB/s',
-                        percent: metrics.disk.percent,
-                        icon: Icons.dns_rounded,
-                        gradient: ZColors.gradientDisk,
-                      ),
-                      MetricCard(
-                        label: 'Network',
-                        value:
-                            (metrics.network.recvMbS + metrics.network.sentMbS)
-                                .toStringAsFixed(1),
-                        unit: 'MB/s',
-                        percent:
-                            ((metrics.network.recvMbS +
-                                        metrics.network.sentMbS) *
-                                    5)
-                                .clamp(0.0, 100.0),
-                        icon: Icons.sensors_rounded,
-                        gradient: ZColors.gradientNet,
-                      ),
-                      if (gpus.isNotEmpty) ...[
-                        MetricCard(
-                          label: 'GPU',
-                          value: gpuUtil.toStringAsFixed(1),
-                          unit: '%',
-                          percent: gpuUtil,
-                          icon: Icons.videogame_asset_rounded,
-                          gradient: ZColors.gradientGpu,
-                        ),
-                      ],
-                    ],
-                  ),
+                  RepaintBoundary(child: _MetricCardsSection(metrics: metrics)),
                   const SizedBox(height: 24),
-                  LayoutBuilder(
-                    builder: (ctx, constraints) {
-                      final isWide = constraints.maxWidth >= 950;
-                      if (isWide) {
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              flex: 6,
-                              child: Column(
-                                children: [
-                                  MetricChart(
-                                    title: 'CPU & RAM Telemetry History',
-                                    history: wsService.history,
-                                    accentGradient: ZColors.gradientCpu,
-                                    series: [
-                                      ChartSeries(
-                                        label: 'CPU %',
-                                        gradient: ZColors.gradientCpu,
-                                        liveExtractor: (m) =>
-                                            m.cpu.percentTotal,
-                                        historyKey: 'cpu_percent',
-                                      ),
-                                      ChartSeries(
-                                        label: 'RAM %',
-                                        gradient: ZColors.gradientRam,
-                                        liveExtractor: (m) => m.memory.percent,
-                                        historyKey: 'ram_percent',
-                                      ),
-                                    ],
-                                    showTooltip: true,
-                                  ),
-                                  const SizedBox(height: 20),
-                                  CoreBarGrid(
-                                    percentPerCore: metrics.cpu.percentPerCore,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 20),
-                            Expanded(
-                              flex: 5,
-                              child: ProcessTable(
-                                processes: metrics.processes,
-                                limit: 9,
-                                onViewAll: onNavigate != null
-                                    ? () => onNavigate!('Processes')
-                                    : null,
-                              ),
-                            ),
-                          ],
-                        );
-                      }
-                      return Column(
-                        children: [
-                          MetricChart(
-                            title: 'CPU & RAM Telemetry History',
-                            history: wsService.history,
-                            accentGradient: ZColors.gradientCpu,
-                            series: [
-                              ChartSeries(
-                                label: 'CPU %',
-                                gradient: ZColors.gradientCpu,
-                                liveExtractor: (m) => m.cpu.percentTotal,
-                                historyKey: 'cpu_percent',
-                              ),
-                              ChartSeries(
-                                label: 'RAM %',
-                                gradient: ZColors.gradientRam,
-                                liveExtractor: (m) => m.memory.percent,
-                                historyKey: 'ram_percent',
-                              ),
-                            ],
-                            showTooltip: true,
-                          ),
-                          const SizedBox(height: 20),
-                          CoreBarGrid(
-                            percentPerCore: metrics.cpu.percentPerCore,
-                          ),
-                          const SizedBox(height: 20),
-                          ProcessTable(
-                            processes: metrics.processes,
-                            limit: 8,
-                            onViewAll: onNavigate != null
-                                ? () => onNavigate!('Processes')
-                                : null,
-                          ),
-                        ],
-                      );
-                    },
+                  _TelemetrySection(
+                    ws: ws,
+                    metrics: metrics,
+                    onNavigate: onNavigate,
                   ),
                 ],
               ),
@@ -535,8 +396,169 @@ class _DashboardHome extends StatelessWidget {
       },
     );
   }
+}
 
-  Widget _buildExecutiveHeader(BuildContext context, SystemMetrics metrics) {
+/// Metric cards rebuild only when live metrics change (1s ticks), isolated
+/// from the rest of the dashboard.
+class _MetricCardsSection extends StatelessWidget {
+  final SystemMetrics metrics;
+  const _MetricCardsSection({required this.metrics});
+
+  @override
+  Widget build(BuildContext context) {
+    final gpus = metrics.gpu;
+    final gpuUtil = gpus.isNotEmpty ? gpus.first.utilizationPercent : 0.0;
+    return MetricGrid(
+      children: [
+        MetricCard(
+          label: 'CPU',
+          value: metrics.cpu.percentTotal.toStringAsFixed(1),
+          unit: '%',
+          percent: metrics.cpu.percentTotal,
+          icon: Icons.memory_rounded,
+          gradient: ZColors.gradientCpu,
+        ),
+        MetricCard(
+          label: 'Memory',
+          value: metrics.memory.usedGb.toStringAsFixed(1),
+          unit: '/ ${metrics.memory.totalGb.toStringAsFixed(0)} GB',
+          percent: metrics.memory.percent,
+          icon: Icons.pie_chart_rounded,
+          gradient: ZColors.gradientRam,
+        ),
+        MetricCard(
+          label: 'Disk I/O',
+          value: (metrics.disk.readMbS + metrics.disk.writeMbS).toStringAsFixed(
+            1,
+          ),
+          unit: 'MB/s',
+          percent: metrics.disk.percent,
+          icon: Icons.dns_rounded,
+          gradient: ZColors.gradientDisk,
+        ),
+        MetricCard(
+          label: 'Network',
+          value: (metrics.network.recvMbS + metrics.network.sentMbS)
+              .toStringAsFixed(1),
+          unit: 'MB/s',
+          percent: ((metrics.network.recvMbS + metrics.network.sentMbS) * 5)
+              .clamp(0.0, 100.0),
+          icon: Icons.sensors_rounded,
+          gradient: ZColors.gradientNet,
+        ),
+        if (gpus.isNotEmpty) ...[
+          MetricCard(
+            label: 'GPU',
+            value: gpuUtil.toStringAsFixed(1),
+            unit: '%',
+            percent: gpuUtil,
+            icon: Icons.videogame_asset_rounded,
+            gradient: ZColors.gradientGpu,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Charts and per-core bars follow live metrics; the process table listens
+/// to its own notifier so it only rebuilds when process data changes.
+class _TelemetrySection extends StatelessWidget {
+  final WebSocketService ws;
+  final SystemMetrics metrics;
+  final ValueChanged<String>? onNavigate;
+
+  const _TelemetrySection({
+    required this.ws,
+    required this.metrics,
+    this.onNavigate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        final isWide = constraints.maxWidth >= 950;
+        final chart = RepaintBoundary(
+          child: MetricChart(
+            title: 'CPU & RAM Telemetry History',
+            history: ws.history,
+            accentGradient: ZColors.gradientCpu,
+            series: [
+              ChartSeries(
+                label: 'CPU %',
+                gradient: ZColors.gradientCpu,
+                liveExtractor: (m) => m.cpu.percentTotal,
+                snapshotExtractor: (s) => s.cpuPct,
+              ),
+              ChartSeries(
+                label: 'RAM %',
+                gradient: ZColors.gradientRam,
+                liveExtractor: (m) => m.memory.percent,
+                snapshotExtractor: (s) => s.ramPct,
+              ),
+            ],
+            showTooltip: true,
+          ),
+        );
+        final cores = RepaintBoundary(
+          child: CoreBarGrid(percentPerCore: metrics.cpu.percentPerCore),
+        );
+        final processes = ValueListenableBuilder<List<ProcessInfo>>(
+          valueListenable: ws.processesNotifier,
+          builder: (context, procs, _) => ProcessTable(
+            processes: procs,
+            limit: 9,
+            onViewAll: onNavigate != null
+                ? () => onNavigate!('Processes')
+                : null,
+          ),
+        );
+
+        if (isWide) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 6,
+                child: Column(
+                  children: [chart, const SizedBox(height: 20), cores],
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(flex: 5, child: processes),
+            ],
+          );
+        }
+        return Column(
+          children: [
+            chart,
+            const SizedBox(height: 20),
+            cores,
+            const SizedBox(height: 20),
+            ValueListenableBuilder<List<ProcessInfo>>(
+              valueListenable: ws.processesNotifier,
+              builder: (context, procs, _) => ProcessTable(
+                processes: procs,
+                limit: 8,
+                onViewAll: onNavigate != null
+                    ? () => onNavigate!('Processes')
+                    : null,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ExecutiveHeader extends StatelessWidget {
+  final SystemMetrics metrics;
+  const _ExecutiveHeader({required this.metrics});
+
+  @override
+  Widget build(BuildContext context) {
     return GlassCard(
       hoverable: false,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),

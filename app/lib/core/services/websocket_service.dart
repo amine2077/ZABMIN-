@@ -32,7 +32,6 @@ class WebSocketService extends ChangeNotifier {
   final ValueNotifier<SystemMetrics?> metricsNotifier = ValueNotifier(null);
 
   int _nextRequestId = 1;
-  final Map<int, Completer<List<Map<String, dynamic>>>> _pendingHistory = {};
   final Map<int, Completer<List<Map<String, dynamic>>>> _pendingConnections =
       {};
   final Map<int, Completer<Map<String, dynamic>>> _pendingKillByPid = {};
@@ -44,6 +43,12 @@ class WebSocketService extends ChangeNotifier {
   List<SystemMetrics> get history => List.unmodifiable(_history);
   String get connectionStatus => _connectionStatus;
   String? get agentError => _agentError;
+
+  final ValueNotifier<List<ProcessInfo>> processesNotifier = ValueNotifier(
+    const [],
+  );
+  List<ProcessInfo> _lastProcesses = const [];
+  int _lastProcessTimestamp = 0;
 
   WebSocketService() {
     connect();
@@ -154,19 +159,6 @@ class WebSocketService extends ChangeNotifier {
             final msgType = parsed['type'] as String?;
             final requestId = parsed['request_id'] as int?;
 
-            if (msgType == 'history') {
-              final rows =
-                  (parsed['data'] as List<dynamic>?)
-                      ?.map((r) => Map<String, dynamic>.from(r as Map))
-                      .toList() ??
-                  [];
-              if (requestId != null && _pendingHistory.containsKey(requestId)) {
-                final c = _pendingHistory.remove(requestId)!;
-                if (!c.isCompleted) c.complete(rows);
-              }
-              return;
-            }
-
             if (msgType == 'process_connections') {
               final conns =
                   (parsed['connections'] as List<dynamic>?)
@@ -232,7 +224,7 @@ class WebSocketService extends ChangeNotifier {
               _history.removeAt(0);
             }
             metricsNotifier.value = metrics;
-            notifyListeners();
+            _maybeUpdateProcesses(metrics);
           } catch (e) {
             debugPrint('Error parsing metrics: $e');
           }
@@ -304,24 +296,28 @@ class WebSocketService extends ChangeNotifier {
     );
   }
 
-  Future<List<Map<String, dynamic>>> fetchHistory(int minutes) {
-    final rid = _allocRequestId();
-    final completer = Completer<List<Map<String, dynamic>>>();
-    _pendingHistory[rid] = completer;
-    sendMessage(
-      jsonEncode({
-        'type': 'get_history',
-        'duration_minutes': minutes,
-        'request_id': rid,
-      }),
-    );
-    return completer.future.timeout(
-      const Duration(seconds: 5),
-      onTimeout: () {
-        _pendingHistory.remove(rid);
-        return [];
-      },
-    );
+  void _maybeUpdateProcesses(SystemMetrics metrics) {
+    final procs = metrics.processes;
+    if (procs.isEmpty && _lastProcesses.isEmpty) return;
+    if (metrics.timestamp == _lastProcessTimestamp &&
+        identical(procs, _lastProcesses)) {
+      return;
+    }
+    if (_processSignature(procs) == _processSignature(_lastProcesses)) {
+      _lastProcessTimestamp = metrics.timestamp;
+      return;
+    }
+    _lastProcessTimestamp = metrics.timestamp;
+    _lastProcesses = procs;
+    processesNotifier.value = List<ProcessInfo>.unmodifiable(procs);
+  }
+
+  List<String> _processSignature(List<ProcessInfo> procs) {
+    return [
+      for (final p in procs)
+        '${p.pid}|${p.name}|${p.status}|${p.memoryMb.toStringAsFixed(0)}|'
+            '${p.cpuPercent.toStringAsFixed(1)}|${p.connections}',
+    ];
   }
 
   void setPriority(int pid, int priority) {
@@ -376,10 +372,6 @@ class WebSocketService extends ChangeNotifier {
   }
 
   void _failAllPending() {
-    for (final entry in _pendingHistory.entries) {
-      if (!entry.value.isCompleted) entry.value.complete([]);
-    }
-    _pendingHistory.clear();
     for (final entry in _pendingConnections.entries) {
       if (!entry.value.isCompleted) entry.value.complete([]);
     }
@@ -475,6 +467,7 @@ class WebSocketService extends ChangeNotifier {
     _channel?.sink.close();
     _failAllPending();
     metricsNotifier.dispose();
+    processesNotifier.dispose();
     super.dispose();
   }
 }

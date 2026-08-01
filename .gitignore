@@ -44,3 +44,15 @@ desktop.ini
 # Environment
 .env
 .env.local
+
+# Local working notes and agent config (not for public repo)
+/zabmin_complete_analysis.md
+/test.md
+/SESSION.md
+/session-2026-08-01.md
+/session-2026-07-30.md
+/session_day7_day8.md
+/AGENTS.md
+/.venv/
+/.opencode/
+/.qoder/

@@ -14,7 +14,6 @@ import websockets
 import audit as _audit
 import collector_runner
 import cpu_state
-import database
 import lifecycle
 import message_validation
 import process_policy
@@ -291,6 +290,20 @@ def _handle_get_priority(msg: dict) -> dict:
         return _get_safe_error_response("get_priority", msg, error)
 
 
+def _handle_get_history(msg: dict) -> dict:
+    """Deprecated: history now lives in the Flutter app's HistoryService.
+
+    Kept for protocol compatibility; returns an empty payload with a
+    deprecation error so old clients know where to look.
+    """
+    return {
+        "type": "history",
+        "request_id": msg.get("request_id"),
+        "data": [],
+        "error": "history_moved_to_app",
+    }
+
+
 connected_clients = set()
 _shutdown_event = asyncio.Event()
 
@@ -550,18 +563,8 @@ async def handler(websocket):
                 await websocket.send(json.dumps(response))
 
             elif msg_type == "get_history":
-                minutes = msg.get("duration_minutes")
-                request_id = msg.get("request_id")
-                rows = await asyncio.to_thread(database.get_history, minutes)
-                await websocket.send(
-                    json.dumps(
-                        {
-                            "type": "history",
-                            "request_id": request_id,
-                            "data": rows,
-                        }
-                    )
-                )
+                response = _handle_get_history(msg)
+                await websocket.send(json.dumps(response))
 
             elif msg_type == "shutdown":
                 logger.info("Shutdown requested via WebSocket")
@@ -582,7 +585,6 @@ async def handler(websocket):
 
 
 async def broadcast_loop():
-    db_counter = 0
     while not _shutdown_event.is_set():
         loop_start = time.monotonic()
         await _check_orphan()
@@ -599,10 +601,6 @@ async def broadcast_loop():
                 for r in results:
                     if isinstance(r, Exception):
                         logger.warning(f"Send failed: {r}")
-            db_counter += 1
-            if db_counter >= 5:
-                await asyncio.to_thread(database.insert_metrics, metrics)
-                db_counter = 0
         except Exception as e:
             logger.error(f"Error collecting metrics: {e}")
         elapsed = time.monotonic() - loop_start

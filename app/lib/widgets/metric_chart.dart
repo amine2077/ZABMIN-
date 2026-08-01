@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/models/system_metrics.dart';
-import '../core/services/websocket_service.dart';
+import '../core/services/history_service.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
 import 'chart_chrome.dart';
@@ -12,14 +12,14 @@ class ChartSeries {
   final String label;
   final List<Color> gradient;
   final double Function(SystemMetrics) liveExtractor;
-  final String historyKey;
+  final double Function(MetricSnapshot) snapshotExtractor;
   final double barWidth;
 
   const ChartSeries({
     required this.label,
     required this.gradient,
     required this.liveExtractor,
-    required this.historyKey,
+    required this.snapshotExtractor,
     this.barWidth = 2.5,
   });
 }
@@ -32,6 +32,7 @@ class MetricChart extends StatefulWidget {
   final bool fixedMaxY;
   final bool showLegend;
   final bool showTooltip;
+  final int maxPoints;
 
   const MetricChart({
     super.key,
@@ -42,6 +43,7 @@ class MetricChart extends StatefulWidget {
     this.fixedMaxY = true,
     this.showLegend = false,
     this.showTooltip = false,
+    this.maxPoints = 400,
   });
 
   @override
@@ -50,66 +52,89 @@ class MetricChart extends StatefulWidget {
 
 class _MetricChartState extends State<MetricChart> {
   int _rangeMinutes = 1;
-  List<Map<String, dynamic>>? _historicData;
+  List<List<FlSpot>>? _historicSpots;
   bool _loading = false;
 
-  void _onRangeChanged(int minutes) async {
+  /// Cached subtree for historical ranges: the chart does not need to
+  /// repaint on every live metric tick, only when its own data changes.
+  Widget? _cachedChild;
+
+  void _onRangeChanged(int minutes) {
     setState(() {
       _rangeMinutes = minutes;
-      if (minutes == 1) {
-        _historicData = null;
-        _loading = false;
-      } else {
-        _loading = true;
-      }
+      _historicSpots = null;
+      _cachedChild = null;
+      _loading = minutes > 1;
     });
     if (minutes > 1) {
-      final ws = context.read<WebSocketService>();
-      final data = await ws.fetchHistory(minutes);
-      if (mounted) {
-        setState(() {
-          _historicData = data;
-          _loading = false;
-        });
-      }
+      _fetchHistoric(minutes);
     }
   }
 
-  List<List<FlSpot>> _buildSpots() {
-    final allSpots = <List<FlSpot>>[];
-    for (int i = 0; i < widget.series.length; i++) {
-      allSpots.add(<FlSpot>[]);
-    }
+  Future<void> _fetchHistoric(int minutes) async {
+    final historyService = context.read<HistoryService>();
+    final now = DateTime.now();
+    final rows = await historyService.fetchRange(
+      from: now.subtract(Duration(minutes: minutes)),
+      to: now,
+      maxPoints: widget.maxPoints,
+    );
+    if (!mounted || _rangeMinutes != minutes) return;
+    final spots = _snapshotsToSpots(rows);
+    setState(() {
+      _historicSpots = spots;
+      _loading = false;
+      _cachedChild = null;
+    });
+  }
 
-    if (_rangeMinutes == 1) {
-      for (int i = 0; i < widget.history.length; i++) {
-        final m = widget.history[i];
-        for (int j = 0; j < widget.series.length; j++) {
-          allSpots[j].add(
-            FlSpot(i.toDouble(), widget.series[j].liveExtractor(m)),
-          );
-        }
-      }
-    } else if (_historicData != null) {
-      for (int i = 0; i < _historicData!.length; i++) {
-        final row = _historicData![i];
-        for (int j = 0; j < widget.series.length; j++) {
-          allSpots[j].add(
-            FlSpot(
-              i.toDouble(),
-              (row[widget.series[j].historyKey] as num?)?.toDouble() ?? 0.0,
-            ),
-          );
-        }
+  List<List<FlSpot>> _snapshotsToSpots(List<MetricSnapshot> rows) {
+    final allSpots = List.generate(widget.series.length, (_) => <FlSpot>[]);
+    for (int i = 0; i < rows.length; i++) {
+      final row = rows[i];
+      for (int j = 0; j < widget.series.length; j++) {
+        allSpots[j].add(
+          FlSpot(i.toDouble(), widget.series[j].snapshotExtractor(row)),
+        );
       }
     }
-
     return allSpots;
+  }
+
+  List<List<FlSpot>> _liveSpots() {
+    final allSpots = List.generate(widget.series.length, (_) => <FlSpot>[]);
+    for (int i = 0; i < widget.history.length; i++) {
+      final m = widget.history[i];
+      for (int j = 0; j < widget.series.length; j++) {
+        allSpots[j].add(
+          FlSpot(i.toDouble(), widget.series[j].liveExtractor(m)),
+        );
+      }
+    }
+    return allSpots;
+  }
+
+  List<List<FlSpot>> _currentSpots() {
+    if (_rangeMinutes == 1) return _liveSpots();
+    return _historicSpots ?? List.generate(widget.series.length, (_) => []);
   }
 
   @override
   Widget build(BuildContext context) {
-    final allSpots = _buildSpots();
+    // Historical ranges rebuild only when their own state changes; live
+    // ranges rebuild every tick so the rolling line moves.
+    if (_rangeMinutes > 1 && _cachedChild != null) {
+      return _cachedChild!;
+    }
+    final child = _buildCurrent();
+    if (_rangeMinutes > 1) {
+      _cachedChild = child;
+    }
+    return child;
+  }
+
+  Widget _buildCurrent() {
+    final allSpots = _currentSpots();
     final isEmpty = allSpots.first.isEmpty;
 
     double maxY = 100;

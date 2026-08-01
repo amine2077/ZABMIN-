@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/models/system_metrics.dart';
 import '../core/services/websocket_service.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
@@ -14,9 +15,10 @@ class NetworkScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<WebSocketService>(
-      builder: (context, service, _) {
-        final metrics = service.latest;
+    final ws = context.read<WebSocketService>();
+    return ValueListenableBuilder<SystemMetrics?>(
+      valueListenable: ws.metricsNotifier,
+      builder: (context, metrics, _) {
         if (metrics == null) {
           return const Center(
             child: CircularProgressIndicator(color: ZColors.accent),
@@ -76,7 +78,7 @@ class NetworkScreen extends StatelessWidget {
             const SizedBox(height: 20),
             MetricChart(
               title: 'Network Throughput',
-              history: service.history,
+              history: ws.history,
               accentGradient: ZColors.gradientNet,
               fixedMaxY: false,
               showLegend: true,
@@ -85,13 +87,13 @@ class NetworkScreen extends StatelessWidget {
                   label: 'Download',
                   gradient: ZColors.gradientNet,
                   liveExtractor: (m) => m.network.recvMbS,
-                  historyKey: 'net_recv_mb_s',
+                  snapshotExtractor: (s) => s.netRecvMbS,
                 ),
                 ChartSeries(
                   label: 'Upload',
                   gradient: ZColors.gradientGpu,
                   liveExtractor: (m) => m.network.sentMbS,
-                  historyKey: 'net_sent_mb_s',
+                  snapshotExtractor: (s) => s.netSentMbS,
                   barWidth: 2,
                 ),
               ],

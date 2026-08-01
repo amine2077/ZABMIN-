@@ -95,9 +95,10 @@ class _ProcessesScreenState extends State<ProcessesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<WebSocketService>(
-      builder: (context, service, _) {
-        final metrics = service.latest;
+    final ws = context.read<WebSocketService>();
+    return ValueListenableBuilder<SystemMetrics?>(
+      valueListenable: ws.metricsNotifier,
+      builder: (context, metrics, _) {
         if (metrics == null) {
           return const Center(
             child: CircularProgressIndicator(color: ZColors.accent),

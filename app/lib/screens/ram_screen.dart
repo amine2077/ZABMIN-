@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/models/system_metrics.dart';
 import '../core/services/websocket_service.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/zcolors.dart';
@@ -15,9 +16,10 @@ class RamScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<WebSocketService>(
-      builder: (context, service, _) {
-        final metrics = service.latest;
+    final ws = context.read<WebSocketService>();
+    return ValueListenableBuilder<SystemMetrics?>(
+      valueListenable: ws.metricsNotifier,
+      builder: (context, metrics, _) {
         if (metrics == null) {
           return const Center(
             child: CircularProgressIndicator(color: ZColors.accent),
@@ -124,14 +126,14 @@ class RamScreen extends StatelessWidget {
             const SizedBox(height: 20),
             MetricChart(
               title: 'Memory Usage',
-              history: service.history,
+              history: ws.history,
               accentGradient: ZColors.gradientRam,
               series: [
                 ChartSeries(
                   label: 'RAM',
                   gradient: ZColors.gradientRam,
                   liveExtractor: (m) => m.memory.percent,
-                  historyKey: 'ram_percent',
+                  snapshotExtractor: (s) => s.ramPct,
                 ),
               ],
             ),
